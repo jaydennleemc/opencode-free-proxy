@@ -10,7 +10,7 @@ One server — works with any tool that speaks OpenAI or Anthropic format: Curso
 git clone https://github.com/bigdata2211it-web/opencode-free-proxy.git
 cd opencode-free-proxy
 npm install
-node server.mjs
+npm start
 ```
 
 Done. Server is at `http://localhost:6446`. API keys are in `api-keys.json` (auto-generated on first run).
@@ -114,9 +114,9 @@ Add to `~/.config/opencode/opencode.json`:
 git clone https://github.com/bigdata2211it-web/opencode-free-proxy.git
 cd opencode-free-proxy
 npm install
-node server.mjs          # foreground
+npm start          # foreground
 # or
-nohup node server.mjs > proxy.log 2>&1 &   # background
+nohup npm start > proxy.log 2>&1 &   # background
 ```
 
 If your VPS doesn't expose port 6446, use an SSH tunnel:
@@ -137,7 +137,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/opencode-proxy
-ExecStart=/usr/bin/node server.mjs
+ExecStart=/usr/bin/node src/index.mjs
 Restart=always
 RestartSec=5
 Environment=PROXY_PORT=6446

@@ -1,0 +1,23 @@
+# Production
+# Usage: docker compose -f docker-compose.yaml up -d --build
+services:
+  proxy:
+    build: .
+    image: opencode-free-proxy:latest
+    container_name: opencode-free-proxy
+    ports:
+      - "${PROXY_PORT:-6446}:6446"
+    environment:
+      PROXY_PORT: "6446"
+      KEYS_FILE: /data/api-keys.json
+      NODE_ENV: production
+      # Full I/O logs (set LOG_DETAIL=0 to disable; LOG_MAX_CHARS to truncate)
+      LOG_DETAIL: "${LOG_DETAIL:-1}"
+      LOG_MAX_CHARS: "${LOG_MAX_CHARS:-0}"
+    volumes:
+      # Persist auto-generated API keys across container recreations
+      - proxy-keys:/data
+    restart: unless-stopped
+
+volumes:
+  proxy-keys:

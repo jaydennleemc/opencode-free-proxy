@@ -1,0 +1,34 @@
+import { Router } from "express";
+import { MODELS } from "../config/index.mjs";
+import { auth } from "../auth.mjs";
+import { getSession } from "../session.mjs";
+import { zenRequest } from "../zen.mjs";
+import { pipeZenResponse } from "../pipes.mjs";
+import { logLine, logIO, msgSummary } from "../logger.mjs";
+
+const router = Router();
+
+router.post("/v1/chat/completions", (req, res) => {
+  const user = auth(req);
+  if (!user) return res.status(401).json({ error: { message: "Invalid API key" } });
+
+  const { model, messages, stream, tools, tool_choice } = req.body;
+  if (!MODELS.includes(model)) {
+    return res.status(400).json({ error: { message: `Unknown model: ${model}. Available: ${MODELS.join(", ")}` } });
+  }
+
+  const sessionId = getSession(user);
+  logLine("OAI", user, model, stream ? "stream" : "sync", "msgs:", JSON.stringify(msgSummary(messages)));
+  logIO("OAI", "INPUT", {
+    model,
+    stream: !!stream,
+    tool_choice: tool_choice || undefined,
+    tools: tools?.length ? tools : undefined,
+    messages,
+  });
+
+  const { body, options } = zenRequest(model, messages, stream, tools, tool_choice, sessionId);
+  pipeZenResponse(options, body, stream, res, "OAI");
+});
+
+export default router;

@@ -4,4 +4,11 @@ api-keys.json
 .env
 .git
 .gitignore
+.omo/
+.vscode/
+.idea/
+.deepeval/
+tests/
+docker/
 README.md
+AGENTS.md
