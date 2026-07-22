@@ -14,13 +14,93 @@ function checkFirstChunkError(chunk) {
   return null;
 }
 
+export function ensureOpenAIIds(payload, toolCallIds = {}, model = "") {
+  if (typeof payload.object !== "string" || !payload.object) {
+    payload.object = "chat.completion";
+  }
+  if (typeof payload.id !== "string" || !payload.id) {
+    payload.id = ocId("chatcmpl");
+  }
+  if (typeof payload.created !== "number") {
+    payload.created = Math.floor(Date.now() / 1000);
+  }
+  if (typeof payload.model !== "string" || !payload.model) {
+    payload.model = model || payload.model || "";
+  }
+  const choice = payload.choices?.[0];
+  const tcs = choice?.delta?.tool_calls ?? choice?.message?.tool_calls;
+  if (Array.isArray(tcs)) {
+    tcs.forEach((tc, arrayIdx) => {
+      const idx = tc.index ?? arrayIdx;
+      if (tc.id) {
+        toolCallIds[idx] = tc.id;
+      } else {
+        tc.id = toolCallIds[idx] ??= ocId("call");
+      }
+      if (!tc.type) tc.type = "function";
+    });
+  }
+  return payload;
+}
+
 export function pipeZenResponse(zenOpts, body, stream, res, logTag = "OAI") {
   const chunks = [];
   const t0 = Date.now();
+  const toolCallIds = {};
+  let requestModel = "";
+  try { requestModel = JSON.parse(body).model || ""; } catch {}
   const req = https.request(zenOpts, (zenRes) => {
     let firstChunk = null;
     let headersSent = false;
     let rateLimited = false;
+    let sseBuffer = "";
+
+    function sendHeaders() {
+      if (headersSent) return;
+      headersSent = true;
+      if (stream) {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          "Connection": "keep-alive",
+          "X-Accel-Buffering": "no",
+          "Transfer-Encoding": "chunked",
+        });
+        res.flushHeaders();
+      } else {
+        res.writeHead(zenRes.statusCode, { "Content-Type": "application/json" });
+      }
+    }
+
+    function flushSseBuffer(final = false) {
+      if (!stream) return;
+      const lines = sseBuffer.split("\n");
+      sseBuffer = final ? "" : (lines.pop() || "");
+      for (const line of lines) {
+        const out = transformSseLine(line);
+        chunks.push(Buffer.from(out + "\n"));
+        res.write(out + "\n");
+      }
+      if (final && sseBuffer) {
+        const out = transformSseLine(sseBuffer);
+        chunks.push(Buffer.from(out + "\n"));
+        res.write(out + "\n");
+      }
+      if (res.flush) res.flush();
+    }
+
+    function transformSseLine(line) {
+      if (!line.startsWith("data: ")) return line;
+      const payload = line.slice(6).trim();
+      if (!payload || payload === "[DONE]") return line;
+      try {
+        const parsed = JSON.parse(payload);
+        const updated = ensureOpenAIIds(parsed, toolCallIds, requestModel);
+        return "data: " + JSON.stringify(updated);
+      } catch {
+        return line;
+      }
+    }
 
     zenRes.on("data", (chunk) => {
       if (!firstChunk) {
@@ -39,28 +119,22 @@ export function pipeZenResponse(zenOpts, body, stream, res, logTag = "OAI") {
           return;
         }
 
-        headersSent = true;
+        sendHeaders();
         if (stream) {
-          res.writeHead(200, {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-            "Transfer-Encoding": "chunked",
-          });
-          res.flushHeaders();
+          sseBuffer += chunk.toString();
+          flushSseBuffer();
         } else {
-          res.writeHead(zenRes.statusCode, { "Content-Type": "application/json" });
+          chunks.push(chunk);
         }
-        chunks.push(firstChunk);
-        res.write(firstChunk);
-        if (res.flush) res.flush();
         return;
       }
       if (headersSent) {
-        chunks.push(chunk);
-        res.write(chunk);
-        if (res.flush) res.flush();
+        if (stream) {
+          sseBuffer += chunk.toString();
+          flushSseBuffer();
+        } else {
+          chunks.push(chunk);
+        }
       }
     });
 
@@ -75,18 +149,25 @@ export function pipeZenResponse(zenOpts, body, stream, res, logTag = "OAI") {
         return;
       }
       if (headersSent) {
-        const raw = Buffer.concat(chunks).toString();
         const ms = Date.now() - t0;
         if (stream) {
+          flushSseBuffer(true);
+          const raw = Buffer.concat(chunks).toString();
           logIO(logTag, `OUTPUT (stream, ${ms}ms)`, parseOpenAIStreamOutput(raw));
+          res.end();
         } else {
+          const raw = Buffer.concat(chunks).toString();
           try {
-            logIO(logTag, `OUTPUT (sync, ${ms}ms)`, parseOpenAISyncOutput(JSON.parse(raw)));
+            const parsed = JSON.parse(raw);
+            const updated = ensureOpenAIIds(parsed, toolCallIds, requestModel);
+            const rawUpdated = JSON.stringify(updated);
+            logIO(logTag, `OUTPUT (sync, ${ms}ms)`, parseOpenAISyncOutput(updated));
+            res.end(rawUpdated);
           } catch {
             logIO(logTag, `OUTPUT (sync raw, ${ms}ms)`, raw);
+            res.end(raw);
           }
         }
-        res.end();
       }
     });
   });
