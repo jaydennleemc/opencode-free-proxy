@@ -3,14 +3,18 @@ import crypto from "crypto";
 import https from "https";
 import fs from "fs";
 
+// ── Config ──
+
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
 const PORT = process.env.PROXY_PORT || 6446;
 const OC_VERSION = "1.15.0";
 const PROXY_VERSION = "9";
+const MODELS = JSON.parse(fs.readFileSync("models.json", "utf8"));
 
-// ── API Keys ───────────────────────────────────────────────────────
+// ── API Keys ──
+
 const keysFile = process.env.KEYS_FILE || "./api-keys.json";
 let apiKeys = {};
 function loadKeys() {
@@ -35,20 +39,13 @@ function auth(req) {
   return null;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────
+// ── IDs & Sessions ──
+
 function ocId(prefix) {
   const ts = Date.now().toString(16);
   const rnd = crypto.randomBytes(12).toString("base64url").slice(0, 16);
   return `${prefix}_${ts}${rnd}`;
 }
-
-const MODELS = [
-  "deepseek-v4-flash-free",
-  "big-pickle",
-  "minimax-m2.5-free",
-  "nemotron-3-super-free",
-  "qwen3.6-plus-free",
-];
 
 // Track sessions per user (rotate every 30 min)
 const userSessions = {};
@@ -60,7 +57,8 @@ function getSession(user) {
   return userSessions[user].id;
 }
 
-// ── Zen API transport ──────────────────────────────────────────────
+// ── Zen API transport ──
+
 function zenRequest(model, messages, stream, tools, tool_choice, sessionId) {
   const reqBody = { model, messages, stream: !!stream };
   if (tools?.length) reqBody.tools = tools;
@@ -90,6 +88,128 @@ function zenRequest(model, messages, stream, tools, tool_choice, sessionId) {
   };
 }
 
+// ── Format converters ──
+
+// Anthropic Messages request → OpenAI request body
+function anthropicToOpenAI(body) {
+  const messages = [];
+  if (body.system) {
+    const sys = typeof body.system === "string" ? body.system
+      : Array.isArray(body.system) ? body.system.map(b => b.text || "").join("\n") : "";
+    if (sys) messages.push({ role: "system", content: sys });
+  }
+  for (const msg of body.messages || []) {
+    if (typeof msg.content === "string") {
+      messages.push({ role: msg.role, content: msg.content });
+    } else if (Array.isArray(msg.content)) {
+      const text = msg.content
+        .filter(b => b.type === "text")
+        .map(b => b.text)
+        .join("\n");
+      // tool_use blocks → assistant tool_calls
+      const toolUses = msg.content.filter(b => b.type === "tool_use");
+      if (toolUses.length && msg.role === "assistant") {
+        messages.push({
+          role: "assistant",
+          content: text || null,
+          tool_calls: toolUses.map(t => ({
+            id: t.id,
+            type: "function",
+            function: { name: t.name, arguments: JSON.stringify(t.input || {}) },
+          })),
+        });
+      } else if (msg.content.some(b => b.type === "tool_result")) {
+        for (const b of msg.content.filter(b => b.type === "tool_result")) {
+          const resultText = typeof b.content === "string" ? b.content
+            : Array.isArray(b.content) ? b.content.map(c => c.text || "").join("\n") : "";
+          messages.push({ role: "tool", tool_call_id: b.tool_use_id, content: resultText });
+        }
+      } else {
+        messages.push({ role: msg.role, content: text });
+      }
+    }
+  }
+
+  const tools = (body.tools || []).map(t => ({
+    type: "function",
+    function: {
+      name: t.name,
+      description: t.description || "",
+      parameters: t.input_schema || {},
+    },
+  }));
+
+  return { messages, tools: tools.length ? tools : undefined };
+}
+
+// OpenAI response → Anthropic Messages response
+function openAIToAnthropic(oaiResp, model, inputTokens) {
+  const choice = oaiResp.choices?.[0];
+  if (!choice) {
+    return {
+      id: ocId("msg"),
+      type: "message",
+      role: "assistant",
+      content: [{ type: "text", text: "" }],
+      model,
+      stop_reason: "end_turn",
+      usage: { input_tokens: inputTokens || 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    };
+  }
+
+  const content = [];
+  if (choice.message?.content) {
+    content.push({ type: "text", text: choice.message.content });
+  }
+  if (choice.message?.tool_calls) {
+    for (const tc of choice.message.tool_calls) {
+      let input = {};
+      try { input = JSON.parse(tc.function.arguments); } catch {}
+      content.push({
+        type: "tool_use",
+        id: tc.id || ocId("toolu"),
+        name: tc.function.name,
+        input,
+      });
+    }
+  }
+  if (!content.length) content.push({ type: "text", text: "" });
+
+  let stopReason = "end_turn";
+  if (choice.finish_reason === "tool_calls") stopReason = "tool_use";
+  else if (choice.finish_reason === "length") stopReason = "max_tokens";
+  else if (choice.finish_reason === "stop") stopReason = "end_turn";
+
+  return {
+    id: ocId("msg"),
+    type: "message",
+    role: "assistant",
+    content,
+    model,
+    stop_reason: stopReason,
+    usage: {
+      input_tokens: oaiResp.usage?.prompt_tokens || inputTokens || 0,
+      output_tokens: oaiResp.usage?.completion_tokens || 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+  };
+}
+
+// ── Response pipes ──
+
+function checkFirstChunkError(chunk) {
+  const str = chunk.toString().trim();
+  if (!str.startsWith("{") || (!str.includes("FreeUsageLimitError") && !str.includes('"error"'))) return null;
+  try {
+    const parsed = JSON.parse(str);
+    if (parsed.error || parsed.type === "error") {
+      return parsed.error?.message || parsed.message || "Rate limit exceeded";
+    }
+  } catch {}
+  return null;
+}
+
 // Pipe Zen response to client (OpenAI format passthrough)
 function pipeZenResponse(zenOpts, body, stream, res) {
   const req = https.request(zenOpts, (zenRes) => {
@@ -99,23 +219,16 @@ function pipeZenResponse(zenOpts, body, stream, res) {
     zenRes.on("data", (chunk) => {
       if (!firstChunk) {
         firstChunk = chunk;
-        const str = chunk.toString().trim();
-
-        if (str.startsWith("{") && (str.includes("FreeUsageLimitError") || str.includes('"error"'))) {
-          try {
-            const parsed = JSON.parse(str);
-            if (parsed.error || parsed.type === "error") {
-              const errMsg = parsed.error?.message || parsed.message || "Rate limit exceeded";
-              console.log("[ZEN RATE LIMITED]", errMsg);
-              if (!res.headersSent) {
-                res.status(429).json({
-                  error: { message: errMsg + " (free model rate limit)", type: "rate_limit_error", code: "rate_limit_exceeded" }
-                });
-              }
-              zenRes.resume();
-              return;
-            }
-          } catch {}
+        const errMsg = checkFirstChunkError(chunk);
+        if (errMsg) {
+          console.log("[ZEN RATE LIMITED]", errMsg);
+          if (!res.headersSent) {
+            res.status(429).json({
+              error: { message: errMsg + " (free model rate limit)", type: "rate_limit_error", code: "rate_limit_exceeded" }
+            });
+          }
+          zenRes.resume();
+          return;
         }
 
         headersSent = true;
@@ -194,112 +307,6 @@ function zenRequestFull(zenOpts, body) {
   });
 }
 
-// ── Anthropic Messages → OpenAI conversion ─────────────────────────
-function anthropicToOpenAI(body) {
-  const messages = [];
-  if (body.system) {
-    const sys = typeof body.system === "string" ? body.system
-      : Array.isArray(body.system) ? body.system.map(b => b.text || "").join("\n") : "";
-    if (sys) messages.push({ role: "system", content: sys });
-  }
-  for (const msg of body.messages || []) {
-    if (typeof msg.content === "string") {
-      messages.push({ role: msg.role, content: msg.content });
-    } else if (Array.isArray(msg.content)) {
-      const text = msg.content
-        .filter(b => b.type === "text")
-        .map(b => b.text)
-        .join("\n");
-      // tool_use blocks → assistant tool_calls
-      const toolUses = msg.content.filter(b => b.type === "tool_use");
-      if (toolUses.length && msg.role === "assistant") {
-        messages.push({
-          role: "assistant",
-          content: text || null,
-          tool_calls: toolUses.map(t => ({
-            id: t.id,
-            type: "function",
-            function: { name: t.name, arguments: JSON.stringify(t.input || {}) },
-          })),
-        });
-      } else if (msg.content.some(b => b.type === "tool_result")) {
-        for (const b of msg.content.filter(b => b.type === "tool_result")) {
-          const resultText = typeof b.content === "string" ? b.content
-            : Array.isArray(b.content) ? b.content.map(c => c.text || "").join("\n") : "";
-          messages.push({ role: "tool", tool_call_id: b.tool_use_id, content: resultText });
-        }
-      } else {
-        messages.push({ role: msg.role, content: text });
-      }
-    }
-  }
-
-  const tools = (body.tools || []).map(t => ({
-    type: "function",
-    function: {
-      name: t.name,
-      description: t.description || "",
-      parameters: t.input_schema || {},
-    },
-  }));
-
-  return { messages, tools: tools.length ? tools : undefined };
-}
-
-// OpenAI response → Anthropic Messages format
-function openAIToAnthropic(oaiResp, model, inputTokens) {
-  const choice = oaiResp.choices?.[0];
-  if (!choice) {
-    return {
-      id: ocId("msg"),
-      type: "message",
-      role: "assistant",
-      content: [{ type: "text", text: "" }],
-      model,
-      stop_reason: "end_turn",
-      usage: { input_tokens: inputTokens || 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-    };
-  }
-
-  const content = [];
-  if (choice.message?.content) {
-    content.push({ type: "text", text: choice.message.content });
-  }
-  if (choice.message?.tool_calls) {
-    for (const tc of choice.message.tool_calls) {
-      let input = {};
-      try { input = JSON.parse(tc.function.arguments); } catch {}
-      content.push({
-        type: "tool_use",
-        id: tc.id || ocId("toolu"),
-        name: tc.function.name,
-        input,
-      });
-    }
-  }
-  if (!content.length) content.push({ type: "text", text: "" });
-
-  let stopReason = "end_turn";
-  if (choice.finish_reason === "tool_calls") stopReason = "tool_use";
-  else if (choice.finish_reason === "length") stopReason = "max_tokens";
-  else if (choice.finish_reason === "stop") stopReason = "end_turn";
-
-  return {
-    id: ocId("msg"),
-    type: "message",
-    role: "assistant",
-    content,
-    model,
-    stop_reason: stopReason,
-    usage: {
-      input_tokens: oaiResp.usage?.prompt_tokens || inputTokens || 0,
-      output_tokens: oaiResp.usage?.completion_tokens || 0,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
-    },
-  };
-}
-
 // Stream OpenAI SSE → Anthropic SSE
 function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens) {
   const msgId = ocId("msg");
@@ -344,23 +351,17 @@ function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens) {
       // Check for errors on first chunk
       if (!firstChunkHandled) {
         firstChunkHandled = true;
-        const trimmed = str.trim();
-        if (trimmed.startsWith("{") && (trimmed.includes("FreeUsageLimitError") || trimmed.includes('"error"'))) {
-          try {
-            const parsed = JSON.parse(trimmed);
-            if (parsed.error || parsed.type === "error") {
-              const errMsg = parsed.error?.message || parsed.message || "Rate limit";
-              if (!res.headersSent) {
-                res.writeHead(429, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({
-                  type: "error",
-                  error: { type: "rate_limit_error", message: errMsg + " (free model rate limit)" },
-                }));
-              }
-              zenRes.resume();
-              return;
-            }
-          } catch {}
+        const errMsg = checkFirstChunkError(chunk);
+        if (errMsg) {
+          if (!res.headersSent) {
+            res.writeHead(429, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              type: "error",
+              error: { type: "rate_limit_error", message: errMsg + " (free model rate limit)" },
+            }));
+          }
+          zenRes.resume();
+          return;
         }
       }
 
@@ -463,6 +464,7 @@ function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens) {
 
   req.on("timeout", () => {
     req.destroy();
+    console.log("[ZEN TIMEOUT]");
     if (!res.headersSent) {
       res.status(504).json({ type: "error", error: { type: "timeout_error", message: "Upstream timeout" } });
     }
@@ -472,7 +474,8 @@ function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens) {
   req.end();
 }
 
-// ── Routes: OpenAI format ──────────────────────────────────────────
+// ── Routes: OpenAI format ──
+
 app.get("/v1/models", (_req, res) => {
   res.json({
     object: "list",
@@ -499,7 +502,8 @@ app.post("/v1/chat/completions", (req, res) => {
   pipeZenResponse(options, body, stream, res);
 });
 
-// ── Routes: Anthropic Messages format ──────────────────────────────
+// ── Routes: Anthropic Messages format ──
+
 app.post("/v1/messages", async (req, res) => {
   const user = auth(req);
   if (!user) {
@@ -546,13 +550,15 @@ app.post("/v1/messages", async (req, res) => {
   }
 });
 
-// ── Health ──────────────────────────────────────────────────────────
+// ── Health ──
+
 app.get("/health", (_req, res) => res.json({
   status: "ok", version: `v${PROXY_VERSION}`, models: MODELS.length,
   endpoints: ["/v1/chat/completions", "/v1/messages", "/v1/models"],
 }));
 
-// ── Start ──────────────────────────────────────────────────────────
+// ── Start ──
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`OpenCode Free Proxy v${PROXY_VERSION} on http://0.0.0.0:${PORT}`);
   console.log("  OpenAI:    POST /v1/chat/completions");
