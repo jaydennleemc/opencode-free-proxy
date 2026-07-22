@@ -31,6 +31,10 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 |----------|---------|-------|
 | `PROXY_PORT` | `6446` | Server listen port |
 | `KEYS_FILE` | `./api-keys.json` | Auto-created if missing |
+| `LOG_DETAIL` | `1` | `0` disables full I/O dumps |
+| `LOG_MAX_CHARS` | `0` | Truncate logged payloads (0 = unlimited) |
+| `NO_COLOR` | — | Set to `1` to disable ANSI color |
+| `FORCE_COLOR` | — | Set to `1` to force ANSI color (e.g. `docker compose logs`) |
 
 ## Files
 

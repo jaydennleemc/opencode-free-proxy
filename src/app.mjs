@@ -3,6 +3,14 @@ import modelsRouter from "./routes/models.mjs";
 import chatRouter from "./routes/chat.mjs";
 import messagesRouter from "./routes/messages.mjs";
 import healthRouter from "./routes/health.mjs";
+import { logLine } from "./logger.mjs";
+
+/** Wrap async route handlers so rejected promises reach the global error handler. */
+export function asyncHandler(fn) {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
 
 export function createApp() {
   const app = express();
@@ -11,5 +19,30 @@ export function createApp() {
   app.use(chatRouter);
   app.use(messagesRouter);
   app.use(healthRouter);
+
+  // 404 fallback — return JSON for unknown routes
+  app.use((_req, res) => {
+    res.status(404).json({ error: { message: "Not found", type: "not_found_error" } });
+  });
+
+  // Global error handler — prevents hanging requests on unhandled errors
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, next) => {
+    logLine("UNHANDLED ERROR", err.message, err.stack);
+    if (res.headersSent) {
+      return next(err);
+    }
+
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal server error";
+    const type = err.type || "server_error";
+
+    if (req.path === "/v1/messages") {
+      res.status(status).json({ type: "error", error: { type, message } });
+    } else {
+      res.status(status).json({ error: { message, type, code: err.code } });
+    }
+  });
+
   return app;
 }

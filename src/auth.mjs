@@ -1,6 +1,7 @@
 import fs from "fs";
 import crypto from "crypto";
 import { KEYS_FILE } from "./config/index.mjs";
+import { logLine } from "./logger.mjs";
 
 export const apiKeys = {};
 
@@ -14,7 +15,7 @@ export function loadKeys() {
       "user-default": "oc-" + crypto.randomBytes(20).toString("hex"),
     });
     fs.writeFileSync(KEYS_FILE, JSON.stringify(apiKeys, null, 2));
-    console.log("[INIT] Generated new API keys →", KEYS_FILE);
+    logLine("Generated new API keys →", KEYS_FILE);
   }
 }
 

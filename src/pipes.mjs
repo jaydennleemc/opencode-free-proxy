@@ -43,7 +43,7 @@ export function ensureOpenAIIds(payload, toolCallIds = {}, model = "") {
   return payload;
 }
 
-export function pipeZenResponse(zenOpts, body, stream, res, logTag = "OAI") {
+export function pipeZenResponse(zenOpts, body, stream, res) {
   const chunks = [];
   const t0 = Date.now();
   const toolCallIds = {};
@@ -108,8 +108,8 @@ export function pipeZenResponse(zenOpts, body, stream, res, logTag = "OAI") {
         const errMsg = checkFirstChunkError(chunk);
         if (errMsg) {
           rateLimited = true;
-          logLine("ZEN", "RATE LIMITED", errMsg);
-          logIO(logTag, "OUTPUT (rate_limit)", { error: errMsg });
+          logLine("RATE LIMITED", errMsg);
+          logIO("OUTPUT (rate_limit)", { error: errMsg });
           if (!res.headersSent) {
             res.status(429).json({
               error: { message: errMsg + " (free model rate limit)", type: "rate_limit_error", code: "rate_limit_exceeded" }
@@ -141,8 +141,8 @@ export function pipeZenResponse(zenOpts, body, stream, res, logTag = "OAI") {
     zenRes.on("end", () => {
       if (rateLimited) return;
       if (!headersSent && !firstChunk) {
-        logLine("ZEN", "EMPTY", "No response from Zen API");
-        logIO(logTag, "OUTPUT (empty)", { error: "Empty response from upstream" });
+        logLine("EMPTY", "No response from Zen API");
+        logIO("OUTPUT (empty)", { error: "Empty response from upstream" });
         if (!res.headersSent) {
           res.status(502).json({ error: { message: "Empty response from upstream", type: "upstream_error" } });
         }
@@ -153,7 +153,7 @@ export function pipeZenResponse(zenOpts, body, stream, res, logTag = "OAI") {
         if (stream) {
           flushSseBuffer(true);
           const raw = Buffer.concat(chunks).toString();
-          logIO(logTag, `OUTPUT (stream, ${ms}ms)`, parseOpenAIStreamOutput(raw));
+          logIO(`OUTPUT (stream, ${ms}ms)`, parseOpenAIStreamOutput(raw));
           res.end();
         } else {
           const raw = Buffer.concat(chunks).toString();
@@ -161,10 +161,10 @@ export function pipeZenResponse(zenOpts, body, stream, res, logTag = "OAI") {
             const parsed = JSON.parse(raw);
             const updated = ensureOpenAIIds(parsed, toolCallIds, requestModel);
             const rawUpdated = JSON.stringify(updated);
-            logIO(logTag, `OUTPUT (sync, ${ms}ms)`, parseOpenAISyncOutput(updated));
+            logIO(`OUTPUT (sync, ${ms}ms)`, parseOpenAISyncOutput(updated));
             res.end(rawUpdated);
           } catch {
-            logIO(logTag, `OUTPUT (sync raw, ${ms}ms)`, raw);
+            logIO(`OUTPUT (sync raw, ${ms}ms)`, raw);
             res.end(raw);
           }
         }
@@ -173,8 +173,8 @@ export function pipeZenResponse(zenOpts, body, stream, res, logTag = "OAI") {
   });
 
   req.on("error", (e) => {
-    logLine("ZEN", "ERROR", e.message);
-    logIO(logTag, "OUTPUT (error)", { error: e.message });
+    logLine("ERROR", e.message);
+    logIO("OUTPUT (error)", { error: e.message });
     if (!res.headersSent) {
       res.status(502).json({ error: { message: "Upstream error: " + e.message, type: "upstream_error" } });
     }
@@ -182,8 +182,8 @@ export function pipeZenResponse(zenOpts, body, stream, res, logTag = "OAI") {
 
   req.on("timeout", () => {
     req.destroy();
-    logLine("ZEN", "TIMEOUT");
-    logIO(logTag, "OUTPUT (timeout)", { error: "Upstream timeout" });
+    logLine("TIMEOUT");
+    logIO("OUTPUT (timeout)", { error: "Upstream timeout" });
     if (!res.headersSent) {
       res.status(504).json({ error: { message: "Upstream timeout", type: "timeout_error" } });
     }
@@ -241,8 +241,8 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens) {
         firstChunkHandled = true;
         const errMsg = checkFirstChunkError(chunk);
         if (errMsg) {
-          logLine("ZEN", "RATE LIMITED", errMsg);
-          logIO("ANT", "OUTPUT (rate_limit)", { error: errMsg });
+          logLine("RATE LIMITED", errMsg);
+          logIO("OUTPUT (rate_limit)", { error: errMsg });
           if (!res.headersSent) {
             res.writeHead(429, { "Content-Type": "application/json" });
             res.end(JSON.stringify({
@@ -336,7 +336,7 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens) {
 
     zenRes.on("end", () => {
       if (!headersSent) {
-        logIO("ANT", "OUTPUT (empty)", { error: "Empty response" });
+        logIO("OUTPUT (empty)", { error: "Empty response" });
         if (!res.headersSent) {
           res.status(502).json({ type: "error", error: { type: "upstream_error", message: "Empty response" } });
         }
@@ -350,14 +350,14 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens) {
       };
       const tools = Object.values(collectedTools);
       if (tools.length) out.tool_calls = tools;
-      logIO("ANT", `OUTPUT (stream, ${ms}ms)`, out);
+      logIO(`OUTPUT (stream, ${ms}ms)`, out);
       res.end();
     });
   });
 
   req.on("error", (e) => {
-    logLine("ZEN", "ERROR", e.message);
-    logIO("ANT", "OUTPUT (error)", { error: e.message });
+    logLine("ERROR", e.message);
+    logIO("OUTPUT (error)", { error: e.message });
     if (!res.headersSent) {
       res.status(502).json({ type: "error", error: { type: "upstream_error", message: e.message } });
     }
@@ -365,8 +365,8 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens) {
 
   req.on("timeout", () => {
     req.destroy();
-    logLine("ZEN", "TIMEOUT");
-    logIO("ANT", "OUTPUT (timeout)", { error: "Upstream timeout" });
+    logLine("TIMEOUT");
+    logIO("OUTPUT (timeout)", { error: "Upstream timeout" });
     if (!res.headersSent) {
       res.status(504).json({ type: "error", error: { type: "timeout_error", message: "Upstream timeout" } });
     }

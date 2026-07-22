@@ -18,8 +18,8 @@ router.post("/v1/chat/completions", (req, res) => {
   }
 
   const sessionId = getSession(user);
-  logLine("OAI", user, model, stream ? "stream" : "sync", "msgs:", JSON.stringify(msgSummary(messages)));
-  logIO("OAI", "INPUT", {
+  logLine(user, model, stream ? "stream" : "sync", "msgs:", JSON.stringify(msgSummary(messages)));
+  logIO("INPUT", {
     model,
     stream: !!stream,
     tool_choice: tool_choice || undefined,
@@ -28,7 +28,7 @@ router.post("/v1/chat/completions", (req, res) => {
   });
 
   const { body, options } = zenRequest(model, messages, stream, tools, tool_choice, sessionId);
-  pipeZenResponse(options, body, stream, res, "OAI");
+  pipeZenResponse(options, body, stream, res);
 });
 
 export default router;
