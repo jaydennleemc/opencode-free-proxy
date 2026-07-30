@@ -23,7 +23,7 @@ export function createApp() {
   app.use((err, req, res, next) => {
     logLine("UNHANDLED ERROR", err.message, err.stack);
     if (res.headersSent) {
-      return next(err);
+      return res.end();
     }
 
     const status = err.status || err.statusCode || 500;

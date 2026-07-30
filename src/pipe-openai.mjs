@@ -1,8 +1,22 @@
 import https from "https";
-import { logLine, logIO } from "./logger.mjs";
+import { logLine, logIO, LOG_DETAIL } from "./logger.mjs";
 import { ocId, checkFirstChunkError } from "./utils.mjs";
 
 // ── shared helpers ─────────────────────────────────────────────────────────
+
+/** Transform an SSE data line: inject missing OpenAI ids. */
+function transformSseLine(line, toolCallIds, requestModel) {
+  if (!line.startsWith("data: ")) return line;
+  const payload = line.slice(6).trim();
+  if (!payload || payload === "[DONE]") return line;
+  try {
+    const parsed = JSON.parse(payload);
+    const updated = ensureOpenAIIds(parsed, toolCallIds, requestModel);
+    return "data: " + JSON.stringify(updated);
+  } catch {
+    return line;
+  }
+}
 
 export function ensureOpenAIIds(payload, toolCallIds = {}, model = "") {
   if (typeof payload.object !== "string" || !payload.object) {
@@ -95,153 +109,158 @@ export function parseOpenAISyncOutput(data) {
 /**
  * Relay an OpenAI-format request to the Zen API and pipe the response back
  * in OpenAI format (supports both streaming SSE and sync JSON).
+ * Automatically retries up to `retries` times on rate-limit (429).
  */
-export function pipeZenResponse(zenOpts, body, stream, res) {
-  const chunks = [];
-  const t0 = Date.now();
+export function pipeZenResponse(zenOpts, body, stream, res, retries = 3) {
   const toolCallIds = {};
   let requestModel = "";
   try { requestModel = JSON.parse(body).model || ""; } catch {}
-  const req = https.request(zenOpts, (zenRes) => {
-    let firstChunk = null;
-    let headersSent = false;
-    let rateLimited = false;
-    let sseBuffer = "";
 
-    function sendHeaders() {
-      if (headersSent) return;
-      headersSent = true;
-      if (stream) {
-        res.writeHead(200, {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache, no-transform",
-          "Connection": "keep-alive",
-          "X-Accel-Buffering": "no",
-          "Transfer-Encoding": "chunked",
-        });
-        res.flushHeaders();
-      } else {
-        res.writeHead(zenRes.statusCode, { "Content-Type": "application/json" });
-      }
-    }
+  function attempt(remaining) {
+    const chunks = [];
+    const t0 = Date.now();
+    /** Accumulate transformed SSE lines for stream-mode logging (only if LOG_DETAIL is on). */
+    let streamLogLines = LOG_DETAIL ? "" : null;
 
-    function flushSseBuffer(final = false) {
-      if (!stream) return;
-      const lines = sseBuffer.split("\n");
-      sseBuffer = final ? "" : (lines.pop() || "");
-      for (const line of lines) {
-        const out = transformSseLine(line);
-        chunks.push(Buffer.from(out + "\n"));
-        res.write(out + "\n");
-      }
-      if (final && sseBuffer) {
-        const out = transformSseLine(sseBuffer);
-        chunks.push(Buffer.from(out + "\n"));
-        res.write(out + "\n");
-      }
-      if (res.flush) res.flush();
-    }
+    const req = https.request(zenOpts, (zenRes) => {
+      let firstChunk = null;
+      let headersSent = false;
+      let rateLimited = false;
+      let sseBuffer = "";
 
-    function transformSseLine(line) {
-      if (!line.startsWith("data: ")) return line;
-      const payload = line.slice(6).trim();
-      if (!payload || payload === "[DONE]") return line;
-      try {
-        const parsed = JSON.parse(payload);
-        const updated = ensureOpenAIIds(parsed, toolCallIds, requestModel);
-        return "data: " + JSON.stringify(updated);
-      } catch {
-        return line;
+      function sendHeaders() {
+        if (headersSent) return;
+        headersSent = true;
+        if (stream) {
+          res.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Transfer-Encoding": "chunked",
+          });
+          res.flushHeaders();
+        } else {
+          res.writeHead(zenRes.statusCode, { "Content-Type": "application/json" });
+        }
       }
-    }
 
-    zenRes.on("data", (chunk) => {
-      if (!firstChunk) {
-        firstChunk = chunk;
-        const errMsg = checkFirstChunkError(chunk);
-        if (errMsg) {
-          rateLimited = true;
-          logLine("RATE LIMITED", errMsg);
-          logIO("OUTPUT (rate_limit)", { error: errMsg });
-          if (!res.headersSent) {
-            res.status(429).json({
-              error: { message: errMsg + " (free model rate limit)", type: "rate_limit_error", code: "rate_limit_exceeded" }
-            });
+      function flushSseBuffer(final = false) {
+        if (!stream) return;
+        const lines = sseBuffer.split("\n");
+        sseBuffer = final ? "" : (lines.pop() || "");
+        for (const line of lines) {
+          const out = transformSseLine(line, toolCallIds, requestModel);
+          if (streamLogLines !== null) streamLogLines += out + "\n";
+          res.write(out + "\n");
+        }
+        if (final && sseBuffer) {
+          const out = transformSseLine(sseBuffer, toolCallIds, requestModel);
+          if (streamLogLines !== null) streamLogLines += out + "\n";
+          res.write(out + "\n");
+        }
+        if (res.flush) res.flush();
+      }
+
+      zenRes.on("data", (chunk) => {
+        if (!firstChunk) {
+          firstChunk = chunk;
+          const errMsg = checkFirstChunkError(chunk);
+          if (errMsg) {
+            if (remaining > 0) {
+              logLine("RATE LIMITED, retrying", `(${remaining} left)`, errMsg);
+              zenRes.destroy();
+              req.destroy();
+              const delay = 1000 * Math.pow(2, 3 - remaining);
+              setTimeout(() => attempt(remaining - 1), delay);
+              return;
+            }
+            rateLimited = true;
+            logLine("RATE LIMITED, exhausted retries", errMsg);
+            logIO("OUTPUT (rate_limit)", { error: errMsg });
+            if (!res.headersSent) {
+              res.status(429).json({
+                error: { message: errMsg + " (free model rate limit)", type: "rate_limit_error", code: "rate_limit_exceeded" }
+              });
+            }
+            zenRes.resume();
+            return;
           }
-          zenRes.resume();
+
+          sendHeaders();
+          if (stream) {
+            sseBuffer += chunk.toString();
+            flushSseBuffer();
+          } else {
+            chunks.push(chunk);
+          }
           return;
         }
-
-        sendHeaders();
-        if (stream) {
-          sseBuffer += chunk.toString();
-          flushSseBuffer();
-        } else {
-          chunks.push(chunk);
-        }
-        return;
-      }
-      if (headersSent) {
-        if (stream) {
-          sseBuffer += chunk.toString();
-          flushSseBuffer();
-        } else {
-          chunks.push(chunk);
-        }
-      }
-    });
-
-    zenRes.on("end", () => {
-      if (rateLimited) return;
-      if (!headersSent && !firstChunk) {
-        logLine("EMPTY", "No response from Zen API");
-        logIO("OUTPUT (empty)", { error: "Empty response from upstream" });
-        if (!res.headersSent) {
-          res.status(502).json({ error: { message: "Empty response from upstream", type: "upstream_error" } });
-        }
-        return;
-      }
-      if (headersSent) {
-        const ms = Date.now() - t0;
-        if (stream) {
-          flushSseBuffer(true);
-          const raw = Buffer.concat(chunks).toString();
-          logIO(`OUTPUT (stream, ${ms}ms)`, parseOpenAIStreamOutput(raw));
-          res.end();
-        } else {
-          const raw = Buffer.concat(chunks).toString();
-          try {
-            const parsed = JSON.parse(raw);
-            const updated = ensureOpenAIIds(parsed, toolCallIds, requestModel);
-            const rawUpdated = JSON.stringify(updated);
-            logIO(`OUTPUT (sync, ${ms}ms)`, parseOpenAISyncOutput(updated));
-            res.end(rawUpdated);
-          } catch {
-            logIO(`OUTPUT (sync raw, ${ms}ms)`, raw);
-            res.end(raw);
+        if (headersSent) {
+          if (stream) {
+            sseBuffer += chunk.toString();
+            flushSseBuffer();
+          } else {
+            chunks.push(chunk);
           }
         }
+      });
+
+      zenRes.on("end", () => {
+        if (rateLimited) return;
+        if (!headersSent && !firstChunk) {
+          logLine("EMPTY", "No response from Zen API");
+          logIO("OUTPUT (empty)", { error: "Empty response from upstream" });
+          if (!res.headersSent) {
+            res.status(502).json({ error: { message: "Empty response from upstream", type: "upstream_error" } });
+          }
+          return;
+        }
+        if (headersSent) {
+          const ms = Date.now() - t0;
+          if (stream) {
+            flushSseBuffer(true);
+            if (streamLogLines !== null) {
+              logIO(`OUTPUT (stream, ${ms}ms)`, parseOpenAIStreamOutput(streamLogLines));
+            }
+            res.end();
+          } else {
+            const raw = Buffer.concat(chunks).toString();
+            try {
+              const parsed = JSON.parse(raw);
+              const updated = ensureOpenAIIds(parsed, toolCallIds, requestModel);
+              const rawUpdated = JSON.stringify(updated);
+              logIO(`OUTPUT (sync, ${ms}ms)`, parseOpenAISyncOutput(updated));
+              res.end(rawUpdated);
+            } catch {
+              logIO(`OUTPUT (sync raw, ${ms}ms)`, raw);
+              res.end(raw);
+            }
+          }
+        }
+      });
+    });
+
+    req.on("error", (e) => {
+      logLine("ERROR", e.message);
+      logIO("OUTPUT (error)", { error: e.message });
+      if (!res.headersSent) {
+        res.status(502).json({ error: { message: "Upstream error: " + e.message, type: "upstream_error" } });
       }
     });
-  });
 
-  req.on("error", (e) => {
-    logLine("ERROR", e.message);
-    logIO("OUTPUT (error)", { error: e.message });
-    if (!res.headersSent) {
-      res.status(502).json({ error: { message: "Upstream error: " + e.message, type: "upstream_error" } });
-    }
-  });
+    req.on("timeout", () => {
+      req.destroy();
+      logLine("TIMEOUT");
+      logIO("OUTPUT (timeout)", { error: "Upstream timeout" });
+      if (!res.headersSent) {
+        res.status(504).json({ error: { message: "Upstream timeout", type: "timeout_error" } });
+      }
+    });
 
-  req.on("timeout", () => {
-    req.destroy();
-    logLine("TIMEOUT");
-    logIO("OUTPUT (timeout)", { error: "Upstream timeout" });
-    if (!res.headersSent) {
-      res.status(504).json({ error: { message: "Upstream timeout", type: "timeout_error" } });
-    }
-  });
+    req.write(body);
+    req.end();
+  }
 
-  req.write(body);
-  req.end();
+  attempt(retries);
 }

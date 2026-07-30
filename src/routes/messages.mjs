@@ -46,7 +46,18 @@ router.post("/v1/messages", async (req, res, next) => {
     } else {
       try {
         const t0 = Date.now();
-        const zenResp = await zenRequestFull(options, body);
+        // Retry up to 3 times with exponential backoff on rate-limit
+        let zenResp;
+        for (let attempt = 0; attempt <= 3; attempt++) {
+          zenResp = await zenRequestFull(options, body);
+          if (zenResp.status !== 429 && !zenResp.data?.error) break;
+          if (attempt < 3) {
+            const errMsg = zenResp.data?.error?.message || "Rate limit exceeded";
+            logLine(`RATE LIMITED, retrying (${3 - attempt} left)`, errMsg);
+            const delay = 1000 * Math.pow(2, attempt);
+            await new Promise(r => setTimeout(r, delay));
+          }
+        }
         const ms = Date.now() - t0;
         if (zenResp.status === 429 || zenResp.data?.error) {
           const errMsg = zenResp.data?.error?.message || "Rate limit exceeded";

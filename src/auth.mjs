@@ -22,8 +22,10 @@ export function loadKeys() {
 export function auth(req) {
   const hdr = req.headers.authorization || req.headers["x-api-key"] || "";
   const tok = hdr.startsWith("Bearer ") ? hdr.slice(7) : hdr;
+  const tokBuf = Buffer.from(tok);
   for (const [name, key] of Object.entries(apiKeys)) {
-    if (tok === key) return name;
+    const keyBuf = Buffer.from(key);
+    if (keyBuf.length === tokBuf.length && crypto.timingSafeEqual(keyBuf, tokBuf)) return name;
   }
   return null;
 }

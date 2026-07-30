@@ -17,13 +17,15 @@ Done. Server is at `http://localhost:6446`. API keys are in `api-keys.json` (aut
 
 ## What you get
 
-| Model | What it is | Reliability |
-|-------|-----------|-------------|
-| `deepseek-v4-flash-free` | DeepSeek V4 Flash | Solid |
-| `big-pickle` | DeepSeek V4 Flash (alias) | Solid |
-| `minimax-m2.5-free` | MiniMax M2.5 | Solid |
-| `nemotron-3-super-free` | NVIDIA Nemotron 3 Super | Hit or miss |
-| `qwen3.6-plus-free` | Qwen 3.6 Plus | Intermittent |
+The server currently serves these free models (check `/v1/models` at runtime for the authoritative list):
+
+| Model | Description |
+|-------|-------------|
+| `deepseek-v4-flash-free` | DeepSeek V4 Flash |
+| `laguna-s-2.1-free` | Laguna S 2.1 |
+| `mimo-v2.5-free` | Mimo V2.5 |
+| `nemotron-3-ultra-free` | NVIDIA Nemotron 3 Ultra |
+| `north-mini-code-free` | North Mini Code |
 
 All models support streaming, tool calls, and system messages.
 
