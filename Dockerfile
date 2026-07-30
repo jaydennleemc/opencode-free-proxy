@@ -8,6 +8,7 @@ RUN npm install --production
 FROM node:24-alpine AS run
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
+COPY package.json ./
 COPY models.json ./
 COPY src ./src
 RUN mkdir -p /data && chown -R node:node /app /data
