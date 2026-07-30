@@ -5,13 +5,6 @@ import messagesRouter from "./routes/messages.mjs";
 import healthRouter from "./routes/health.mjs";
 import { logLine } from "./logger.mjs";
 
-/** Wrap async route handlers so rejected promises reach the global error handler. */
-export function asyncHandler(fn) {
-  return (req, res, next) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
-  };
-}
-
 export function createApp() {
   const app = express();
   app.use(express.json({ limit: "10mb" }));

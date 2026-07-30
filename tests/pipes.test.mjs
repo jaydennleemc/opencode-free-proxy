@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { ensureOpenAIIds } from "../src/pipes.mjs";
+import { ensureOpenAIIds } from "../src/pipe-openai.mjs";
 
 describe("ensureOpenAIIds", () => {
   it("injects a top-level id when missing", () => {

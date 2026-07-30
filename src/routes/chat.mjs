@@ -2,8 +2,8 @@ import { Router } from "express";
 import { MODELS } from "../config/index.mjs";
 import { auth } from "../auth.mjs";
 import { getSession } from "../session.mjs";
-import { zenRequest } from "../zen.mjs";
-import { pipeZenResponse } from "../pipes.mjs";
+import { zenRequest } from "../client.mjs";
+import { pipeZenResponse } from "../pipe-openai.mjs";
 import { logLine, logIO, msgSummary } from "../logger.mjs";
 
 const router = Router();

@@ -2,9 +2,10 @@ import { Router } from "express";
 import { MODELS } from "../config/index.mjs";
 import { auth } from "../auth.mjs";
 import { getSession } from "../session.mjs";
-import { zenRequest, zenRequestFull } from "../zen.mjs";
-import { pipeZenAsAnthropic } from "../pipes.mjs";
-import { anthropicToOpenAI, openAIToAnthropic } from "../converters.mjs";
+import { zenRequest, zenRequestFull } from "../client.mjs";
+import { pipeZenAsAnthropic } from "../pipe-anthropic.mjs";
+import { anthropicToOpenAI } from "../to-openai.mjs";
+import { openAIToAnthropic } from "../to-anthropic.mjs";
 import { logLine, logIO, msgSummary } from "../logger.mjs";
 
 const router = Router();

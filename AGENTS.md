@@ -45,11 +45,13 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 | `src/config/index.mjs` | Port, version, model list |
 | `src/auth.mjs` | API key loading / auth middleware helper |
 | `src/session.mjs` | Per-user session rotation |
-| `src/zen.mjs` | Zen API request builders |
-| `src/converters.mjs` | Anthropic ⇄ OpenAI format converters |
-| `src/pipes.mjs` | Stream / sync response forwarding |
-| `src/routes/*.mjs` | Route handlers |
+| `src/client.mjs` | Zen API HTTP request builders |
+| `src/to-openai.mjs` | Anthropic → OpenAI format converter |
+| `src/to-anthropic.mjs` | OpenAI → Anthropic format converter |
+| `src/pipe-openai.mjs` | OpenAI-format response pipe (stream + sync) |
+| `src/pipe-anthropic.mjs` | Anthropic-format SSE stream pipe |
 | `src/logger.mjs` | I/O logging utilities |
+| `src/routes/*.mjs` | Route handlers |
 | `models.json` | List of available models |
 | `api-keys.json` | Auto-generated, **never commit** |
 | `Dockerfile` | Multi-stage, `node:24-alpine`, runs as `node` user |
