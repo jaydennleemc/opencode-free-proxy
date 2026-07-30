@@ -1,5 +1,7 @@
 import { ocId } from "./utils.mjs";
 
+const NO_CACHE = { cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+
 export function anthropicToOpenAI(body) {
   const messages = [];
   if (body.system) {
@@ -60,7 +62,7 @@ export function openAIToAnthropic(oaiResp, model, inputTokens) {
       content: [{ type: "text", text: "" }],
       model,
       stop_reason: "end_turn",
-      usage: { input_tokens: inputTokens || 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      usage: { input_tokens: inputTokens || 0, output_tokens: 0, ...NO_CACHE },
     };
   }
 
@@ -97,8 +99,7 @@ export function openAIToAnthropic(oaiResp, model, inputTokens) {
     usage: {
       input_tokens: oaiResp.usage?.prompt_tokens || inputTokens || 0,
       output_tokens: oaiResp.usage?.completion_tokens || 0,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
+      ...NO_CACHE,
     },
   };
 }
