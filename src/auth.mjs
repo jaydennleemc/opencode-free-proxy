@@ -11,8 +11,8 @@ export function loadKeys() {
   } catch {}
   if (Object.keys(apiKeys).length === 0) {
     Object.assign(apiKeys, {
-      admin: "oc-" + crypto.randomBytes(20).toString("hex"),
-      "user-default": "oc-" + crypto.randomBytes(20).toString("hex"),
+      admin: process.env.ADMIN_API_KEY || "oc-" + crypto.randomBytes(20).toString("hex"),
+      "user-default": process.env.USER_DEFAULT_API_KEY || "oc-" + crypto.randomBytes(20).toString("hex"),
     });
     fs.writeFileSync(KEYS_FILE, JSON.stringify(apiKeys, null, 2));
     logLine("Generated new API keys →", KEYS_FILE);

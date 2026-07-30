@@ -11,6 +11,9 @@ services:
       PROXY_PORT: "6446"
       KEYS_FILE: /data/api-keys.json
       NODE_ENV: production
+      # API keys — omit to auto-generate
+      ADMIN_API_KEY: "${ADMIN_API_KEY:-}"
+      USER_DEFAULT_API_KEY: "${USER_DEFAULT_API_KEY:-}"
       # Full I/O logs (set LOG_DETAIL=0 to disable; LOG_MAX_CHARS to truncate)
       LOG_DETAIL: "${LOG_DETAIL:-1}"
       LOG_MAX_CHARS: "${LOG_MAX_CHARS:-0}"
