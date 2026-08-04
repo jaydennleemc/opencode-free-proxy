@@ -6,22 +6,40 @@ services:
     image: opencode-free-proxy:latest
     container_name: opencode-free-proxy
     ports:
-      - "${PROXY_PORT:-6446}:6446"
+      # Prefer loopback if only local clients; use 6446:6446 for LAN exposure
+      - "${PROXY_BIND:-127.0.0.1}:${PROXY_PORT:-6446}:6446"
     environment:
       PROXY_PORT: "6446"
       KEYS_FILE: /data/api-keys.json
       NODE_ENV: production
-      # API keys — omit to auto-generate
+      # Prefer Docker secrets / compose env file over plaintext in shell history
       ADMIN_API_KEY: "${ADMIN_API_KEY:-}"
       USER_DEFAULT_API_KEY: "${USER_DEFAULT_API_KEY:-}"
-      # Full I/O logs (set LOG_DETAIL=0 to disable; LOG_MAX_CHARS to truncate)
-      LOG_DETAIL: "${LOG_DETAIL:-1}"
+      # Production default: less I/O leakage in logs
+      LOG_DETAIL: "${LOG_DETAIL:-0}"
       LOG_MAX_CHARS: "${LOG_MAX_CHARS:-0}"
-      # FORCE_COLOR=1 if using `docker compose logs -f` (non-TTY)
       FORCE_COLOR: "${FORCE_COLOR:-}"
     volumes:
       # Persist auto-generated API keys across container recreations
       - proxy-keys:/data
+    # ── Hardening ───────────────────────────────────────────
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Non-root user comes from Dockerfile (USER node). Do not override unless
+    # you also chown the keys volume for that uid.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
     restart: unless-stopped
 
 volumes:

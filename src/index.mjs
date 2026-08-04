@@ -6,7 +6,12 @@ import { logLine, logStatusLine } from "./logger.mjs";
 loadKeys();
 
 const app = createApp();
-app.listen(PORT, "0.0.0.0", () => {
+// Express 5: listen errors (e.g. EADDRINUSE) are passed to this callback instead of thrown.
+app.listen(PORT, "0.0.0.0", (err) => {
+  if (err) {
+    logLine("LISTEN ERROR", err.message);
+    process.exit(1);
+  }
   logLine(`OpenCode Free Proxy v${PROXY_VERSION} on http://0.0.0.0:${PORT}`);
   logLine("  OpenAI:    POST /v1/chat/completions");
   logLine("  Anthropic: POST /v1/messages");

@@ -22,7 +22,8 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
   - `POST /v1/chat/completions` (OpenAI)
   - `POST /v1/messages` (Anthropic)
   - Auth works with either `Authorization: Bearer KEY` or `x-api-key: KEY` header.
-- **Session rotation** — per-user sessions rotate every 30 minutes (internal, no-op for agent work).
+- **Session rotation** — per-user sessions TTL 30 minutes; **force-rotated on rate-limit** before each 429 retry.
+- **Retries** — up to `MAX_RETRIES` on 429 / FreeUsageLimit + transient (network, timeout, 502/503/504); stops if client disconnects; honors `Retry-After` when present.
 - **Only dependency** — `express` (listed in package.json, no lockfile committed).
 
 ## Env vars
@@ -31,6 +32,9 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 |----------|---------|-------|
 | `PROXY_PORT` | `6446` | Server listen port |
 | `KEYS_FILE` | `./api-keys.json` | Auto-created if missing |
+| `MAX_RETRIES` | `12` | Rate-limit / transient retries after first attempt |
+| `RETRY_BASE_MS` | `1000` | First retry delay; doubles each attempt (±20% jitter) |
+| `RETRY_MAX_MS` | `30000` | Cap for exponential backoff / Retry-After |
 | `LOG_DETAIL` | `1` | `0` disables full I/O dumps |
 | `LOG_MAX_CHARS` | `0` | Truncate logged payloads (0 = unlimited) |
 | `NO_COLOR` | — | Set to `1` to disable ANSI color |
@@ -44,7 +48,8 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 | `src/app.mjs` | Express app factory |
 | `src/config/index.mjs` | Port, version, model list |
 | `src/auth.mjs` | API key loading / auth middleware helper |
-| `src/session.mjs` | Per-user session rotation |
+| `src/session.mjs` | Per-user session get / rotate-on-429 |
+| `src/retry.mjs` | Shared backoff, error classify, session rewrite |
 | `src/client.mjs` | Zen API HTTP request builders |
 | `src/to-openai.mjs` | Anthropic → OpenAI format converter |
 | `src/to-anthropic.mjs` | OpenAI → Anthropic format converter |
@@ -54,8 +59,8 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 | `src/routes/*.mjs` | Route handlers |
 | `models.json` | List of available models |
 | `api-keys.json` | Auto-generated, **never commit** |
-| `Dockerfile` | Multi-stage, `node:24-alpine`, runs as `node` user |
-| `docker-compose.yaml` | Production compose |
+| `Dockerfile` | Multi-stage, `npm ci` + lockfile, non-root `node`, HEALTHCHECK |
+| `docker-compose.yaml` | Production: read-only rootfs, cap_drop ALL, no-new-privileges |
 | `docker-compose.dev.yaml` | Development compose with bind-mount |
 | `.omo/` | OpenCode plans (gitignored) |
 

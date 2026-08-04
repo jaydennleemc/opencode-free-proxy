@@ -1,6 +1,17 @@
 import https from "https";
+import { MAX_RETRIES } from "./config/index.mjs";
 import { logLine, logIO } from "./logger.mjs";
-import { ocId, checkFirstChunkError } from "./utils.mjs";
+import { ocId } from "./utils.mjs";
+import {
+  parseErrorPayload,
+  planRetry,
+  logAndScheduleRetry,
+  isClientGone,
+  isTransientNetworkError,
+  isTransientHttpStatus,
+  withFreshSession,
+  withFreshRequestId,
+} from "./retry.mjs";
 
 const NO_CACHE = { cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
 
@@ -9,27 +20,97 @@ const NO_CACHE = { cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
 /**
  * Relay an OpenAI-format request to the Zen API and pipe the response back
  * as an Anthropic SSE stream (message_start / content_block_* / message_delta).
- * Automatically retries up to `retries` times on rate-limit (429).
+ * Retries on rate-limit / transient errors with backoff; rotates session on 429.
+ *
+ * @param {object} [ctx]
+ * @param {string} [ctx.user]
+ * @param {import("http").IncomingMessage} [ctx.clientReq]
+ * @param {number} [ctx.retries]
  */
-export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, retries = 3) {
+export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx = {}) {
+  const { user, clientReq, retries = MAX_RETRIES } = typeof ctx === "number" ? { retries: ctx } : ctx;
   const msgId = ocId("msg");
 
+  let currentOpts = zenOpts;
+  let aborted = false;
+  if (clientReq) {
+    clientReq.on("close", () => { aborted = true; });
+  }
+
+  function gone() {
+    return aborted || isClientGone(clientReq, res);
+  }
+
   function attempt(remaining) {
+    if (gone()) {
+      logLine("CLIENT GONE, stop attempt");
+      return;
+    }
+
     const t0 = Date.now();
     let collectedText = "";
     const collectedTools = {};
     let stopReasonLogged = null;
+    let intentionalClose = false;
+    let terminalHandled = false;
 
-    const req = https.request(zenOpts, (zenRes) => {
+    function failRateLimit(errMsg) {
+      if (terminalHandled || res.headersSent) return;
+      terminalHandled = true;
+      logLine("RATE LIMITED, exhausted retries", errMsg);
+      logIO("OUTPUT (rate_limit)", { error: errMsg });
+      res.writeHead(429, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        type: "error",
+        error: { type: "rate_limit_error", message: errMsg + " (free model rate limit)" },
+      }));
+    }
+
+    function failUpstream(status, errMsg, type = "upstream_error") {
+      if (terminalHandled || res.headersSent) return;
+      terminalHandled = true;
+      logLine("UPSTREAM ERROR", errMsg);
+      logIO("OUTPUT (error)", { error: errMsg });
+      res.status(status).json({ type: "error", error: { type, message: errMsg } });
+    }
+
+    /** @returns {boolean} true if a retry was scheduled */
+    function trySchedule(kind, errMsg, headers) {
+      if (gone()) {
+        logLine("CLIENT GONE, aborting retries");
+        intentionalClose = true;
+        return true;
+      }
+      const plan = planRetry({ remaining, retries, kind, headers, errMsg });
+      if (!plan) return false;
+      intentionalClose = true;
+      logAndScheduleRetry(plan, remaining, (delay) => {
+        setTimeout(() => {
+          if (gone()) {
+            logLine("CLIENT GONE, stop retry");
+            return;
+          }
+          if (plan.rotateSession && user) {
+            currentOpts = withFreshSession(currentOpts, user);
+          } else {
+            currentOpts = withFreshRequestId(currentOpts);
+          }
+          attempt(remaining - 1);
+        }, delay);
+      });
+      return true;
+    }
+
+    const req = https.request(currentOpts, (zenRes) => {
       let headersSent = false;
       let buffer = "";
       let outputTokens = 0;
       let contentIdx = 0;
       let toolIdx = -1;
       let firstChunkHandled = false;
-      // Track which content blocks have actually been started so we
-      // only send content_block_stop for blocks that exist.
+      let skipEnd = false;
       const startedBlocks = new Set();
+      const status = zenRes.statusCode || 0;
 
       function sendSSE(event, data) {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -57,31 +138,46 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, retri
         });
       }
 
+      function handleRetryable(kind, errMsg) {
+        if (trySchedule(kind, errMsg, zenRes.headers)) {
+          skipEnd = true;
+          zenRes.destroy();
+          req.destroy();
+          return true;
+        }
+        return false;
+      }
+
       zenRes.on("data", (chunk) => {
+        if (skipEnd || terminalHandled) return;
         const str = chunk.toString();
 
         if (!firstChunkHandled) {
           firstChunkHandled = true;
-          const errMsg = checkFirstChunkError(chunk);
-          if (errMsg) {
-            if (remaining > 0) {
-              logLine("RATE LIMITED, retrying", `(${remaining} left)`, errMsg);
-              zenRes.destroy();
-              req.destroy();
-              const delay = 1000 * Math.pow(2, 3 - remaining);
-              setTimeout(() => attempt(remaining - 1), delay);
-              return;
-            }
-            logLine("RATE LIMITED, exhausted retries", errMsg);
-            logIO("OUTPUT (rate_limit)", { error: errMsg });
-            if (!res.headersSent) {
-              res.writeHead(429, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({
-                type: "error",
-                error: { type: "rate_limit_error", message: errMsg + " (free model rate limit)" },
-              }));
-            }
+          const errInfo = parseErrorPayload(chunk);
+          const rateLimited = status === 429 || errInfo?.rateLimited;
+
+          if (rateLimited) {
+            const errMsg = errInfo?.message || "Rate limit exceeded";
+            if (handleRetryable("rate_limit", errMsg)) return;
+            failRateLimit(errMsg);
             zenRes.resume();
+            skipEnd = true;
+            return;
+          }
+
+          if (errInfo) {
+            failUpstream(status >= 400 ? status : 502, errInfo.message);
+            zenRes.resume();
+            skipEnd = true;
+            return;
+          }
+
+          if (isTransientHttpStatus(status)) {
+            if (handleRetryable("transient", `HTTP ${status}`)) return;
+            failUpstream(status, `Upstream HTTP ${status}`);
+            zenRes.resume();
+            skipEnd = true;
             return;
           }
         }
@@ -168,7 +264,18 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, retri
       });
 
       zenRes.on("end", () => {
+        if (skipEnd || terminalHandled) return;
         if (!headersSent) {
+          if (status === 429) {
+            if (handleRetryable("rate_limit", "Rate limit exceeded")) return;
+            failRateLimit("Rate limit exceeded");
+            return;
+          }
+          if (isTransientHttpStatus(status)) {
+            if (handleRetryable("transient", `HTTP ${status}`)) return;
+            failUpstream(status, `Upstream HTTP ${status}`);
+            return;
+          }
           logIO("OUTPUT (empty)", { error: "Empty response" });
           if (!res.headersSent) {
             res.status(502).json({ type: "error", error: { type: "upstream_error", message: "Empty response" } });
@@ -189,6 +296,10 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, retri
     });
 
     req.on("error", (e) => {
+      if (intentionalClose || terminalHandled) return;
+      if (remaining > 0 && isTransientNetworkError(e)) {
+        if (trySchedule("transient", e.message)) return;
+      }
       logLine("ERROR", e.message);
       logIO("OUTPUT (error)", { error: e.message });
       if (!res.headersSent) {
@@ -197,7 +308,11 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, retri
     });
 
     req.on("timeout", () => {
+      if (intentionalClose || terminalHandled) return;
+      intentionalClose = true;
       req.destroy();
+      if (remaining > 0 && trySchedule("transient", "Upstream timeout")) return;
+      intentionalClose = false;
       logLine("TIMEOUT");
       logIO("OUTPUT (timeout)", { error: "Upstream timeout" });
       if (!res.headersSent) {

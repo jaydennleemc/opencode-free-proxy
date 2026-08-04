@@ -12,6 +12,11 @@ router.post("/v1/chat/completions", (req, res) => {
   const user = auth(req);
   if (!user) return res.status(401).json({ error: { message: "Invalid API key" } });
 
+  // Express 5: unparsed body is `undefined` (was `{}` in v4)
+  if (req.body == null || typeof req.body !== "object") {
+    return res.status(400).json({ error: { message: "Request body must be JSON", type: "invalid_request_error" } });
+  }
+
   const { model, messages, stream, tools, tool_choice } = req.body;
   if (!MODELS.includes(model)) {
     return res.status(400).json({ error: { message: `Unknown model: ${model}. Available: ${MODELS.join(", ")}` } });
@@ -28,7 +33,7 @@ router.post("/v1/chat/completions", (req, res) => {
   });
 
   const { body, options } = zenRequest(model, messages, stream, tools, tool_choice, sessionId);
-  pipeZenResponse(options, body, stream, res);
+  pipeZenResponse(options, body, stream, res, { user, clientReq: req });
 });
 
 export default router;

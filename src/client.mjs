@@ -38,10 +38,11 @@ export function zenRequestFull(zenOpts, body) {
       zenRes.on("data", (c) => chunks.push(c));
       zenRes.on("end", () => {
         const raw = Buffer.concat(chunks).toString();
+        const headers = zenRes.headers;
         try {
-          resolve({ status: zenRes.statusCode, data: JSON.parse(raw), raw });
+          resolve({ status: zenRes.statusCode, data: JSON.parse(raw), raw, headers });
         } catch {
-          resolve({ status: zenRes.statusCode, data: null, raw });
+          resolve({ status: zenRes.statusCode, data: null, raw, headers });
         }
       });
     });

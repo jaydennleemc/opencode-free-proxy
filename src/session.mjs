@@ -24,3 +24,10 @@ export function getSession(user) {
   existing.ts = now;
   return existing.id;
 }
+
+/** Force a new session id (e.g. after rate-limit so free-tier quota resets). */
+export function rotateSession(user) {
+  const session = { id: ocId("ses"), ts: Date.now() };
+  userSessions.set(user, session);
+  return session.id;
+}

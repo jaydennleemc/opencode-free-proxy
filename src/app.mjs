@@ -18,7 +18,7 @@ export function createApp() {
     res.status(404).json({ error: { message: "Not found", type: "not_found_error" } });
   });
 
-  // Global error handler — prevents hanging requests on unhandled errors
+  // Global error handler — Express 5 also forwards rejected promises from async routes here.
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     logLine("UNHANDLED ERROR", err.message, err.stack);
@@ -26,7 +26,9 @@ export function createApp() {
       return res.end();
     }
 
-    const status = err.status || err.statusCode || 500;
+    // Express 5: res.status() only accepts integers in 100–999
+    let status = Number(err.status || err.statusCode) || 500;
+    if (!Number.isInteger(status) || status < 100 || status > 999) status = 500;
     const message = err.message || "Internal server error";
     const type = err.type || "server_error";
 
