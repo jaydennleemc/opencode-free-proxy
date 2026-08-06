@@ -1,8 +1,19 @@
+import { ensureAssistantReasoning } from "./reasoning.mjs";
+
 /** Extract plain text from an Anthropic content field that may be a string or an array of content blocks. */
 function contentText(content) {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) return content.map(c => c.text || "").join("\n");
   return "";
+}
+
+/** Joins Anthropic `thinking` content blocks into a single reasoning string. */
+function reasoningText(blocks) {
+  const text = (blocks || [])
+    .filter(b => b.type === "thinking")
+    .map(b => (typeof b.thinking === "string" ? b.thinking : b.text || ""))
+    .join("\n");
+  return text;
 }
 
 /** Build an assistant message with tool_calls from tool_use blocks. */
@@ -30,10 +41,13 @@ function convertContentBlock(msg) {
   const blocks = msg.content;
   const text = contentText(blocks.filter(b => b.type === "text"));
   const toolUses = blocks.filter(b => b.type === "tool_use");
+  const reasoning = reasoningText(blocks);
 
   // Assistant with tool calls
   if (toolUses.length && msg.role === "assistant") {
-    return [buildToolUseMessage(text, toolUses)];
+    const m = buildToolUseMessage(text, toolUses);
+    m.reasoning_content = reasoning;
+    return [m];
   }
 
   // Tool result blocks
@@ -42,7 +56,9 @@ function convertContentBlock(msg) {
   }
 
   // Plain text array (or non-tool content blocks)
-  return [{ role: msg.role, content: text }];
+  const m = { role: msg.role, content: text };
+  if (msg.role === "assistant") m.reasoning_content = reasoning;
+  return [m];
 }
 
 /** Convert an Anthropic /v1/messages body into OpenAI /v1/chat/completions format. */
@@ -70,6 +86,9 @@ export function anthropicToOpenAI(body) {
       parameters: t.input_schema || {},
     },
   }));
+
+  // Thinking-mode models require reasoning_content on assistant history messages.
+  ensureAssistantReasoning(messages);
 
   return { messages, tools: tools.length ? tools : undefined };
 }

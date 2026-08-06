@@ -4,6 +4,7 @@ import { auth } from "../auth.mjs";
 import { getSession } from "../session.mjs";
 import { zenRequest } from "../client.mjs";
 import { pipeZenResponse } from "../pipe-openai.mjs";
+import { ensureAssistantReasoning } from "../reasoning.mjs";
 import { logLine, logIO, msgSummary } from "../logger.mjs";
 
 const router = Router();
@@ -23,6 +24,8 @@ router.post("/v1/chat/completions", (req, res) => {
   }
 
   const sessionId = getSession(user);
+  // Thinking-mode models require reasoning_content on assistant history messages.
+  ensureAssistantReasoning(messages);
   logLine(user, model, stream ? "stream" : "sync", "msgs:", JSON.stringify(msgSummary(messages)));
   logIO("INPUT", {
     model,
