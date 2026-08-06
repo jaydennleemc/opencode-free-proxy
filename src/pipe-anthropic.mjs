@@ -33,9 +33,13 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
 
   let currentOpts = zenOpts;
   let aborted = false;
-  if (clientReq) {
-    clientReq.on("close", () => { aborted = true; });
-  }
+  // Do NOT key off req 'close' / req.destroyed: Node fires 'close' and marks
+  // destroyed as soon as the request body is fully consumed, even though the
+  // client is still connected and waiting. Detect a real disconnect via the
+  // response socket closing before the response was sent.
+  res.on("close", () => {
+    if (!res.writableEnded) aborted = true;
+  });
 
   function gone() {
     return aborted || isClientGone(clientReq, res);

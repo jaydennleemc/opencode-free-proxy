@@ -31,8 +31,14 @@ export function sleep(ms) {
 }
 
 export function isClientGone(clientReq, res) {
+  // A response that is ended/destroyed/closed means the client connection is
+  // done (we finished, or it dropped before we could finish).
   if (res?.writableEnded || res?.destroyed || res?.closed) return true;
-  if (clientReq?.destroyed || clientReq?.aborted) return true;
+  // The request's 'close'/'destroyed' are NOT reliable here: Node auto-destroys
+  // the req stream as soon as the request body is fully consumed (so `destroyed`
+  // becomes true) even though the client is still connected and waiting for our
+  // response. Only `req.aborted` is set on a genuine early client abort.
+  if (clientReq?.aborted) return true;
   return false;
 }
 

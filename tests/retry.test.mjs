@@ -9,6 +9,7 @@ import {
   isTransientHttpStatus,
   parseErrorPayload,
   planRetry,
+  isClientGone,
   withFreshSession,
   withFreshRequestId,
 } from "../src/retry.mjs";
@@ -95,6 +96,38 @@ describe("planRetry", () => {
     const tr = planRetry({ remaining: 3, retries: 12, kind: "transient", errMsg: "y" });
     assert.ok(!tr.rotateSession);
     assert.strictEqual(planRetry({ remaining: 0, retries: 12, kind: "rate_limit" }), null);
+  });
+});
+
+describe("isClientGone", () => {
+  // A request whose body was fully consumed has req.destroyed === true and its
+  // 'close' event has fired — but the client is still connected and waiting.
+  // This must NOT be treated as client-gone (regression: false CLIENT GONE logs
+  // caused the proxy to return without ever responding, hanging the client).
+  it("does not treat a fully-consumed request as client-gone while res is open", () => {
+    const consumedReq = { destroyed: true, aborted: false, complete: true };
+    const openRes = { writableEnded: false, destroyed: false, closed: false };
+    assert.strictEqual(isClientGone(consumedReq, openRes), false);
+  });
+
+  it("treats a genuinely aborted request as client-gone", () => {
+    const abortedReq = { destroyed: true, aborted: true };
+    const openRes = { writableEnded: false, destroyed: false, closed: false };
+    assert.strictEqual(isClientGone(abortedReq, openRes), true);
+  });
+
+  it("treats a destroyed/closed response as client-gone", () => {
+    const req = { destroyed: true, aborted: false };
+    assert.strictEqual(isClientGone(req, { writableEnded: true }), true);
+    assert.strictEqual(isClientGone(req, { destroyed: true }), true);
+    assert.strictEqual(isClientGone(req, { closed: true }), true);
+  });
+
+  it("is false when everything is still open and waiting", () => {
+    assert.strictEqual(
+      isClientGone({ destroyed: false, aborted: false }, { writableEnded: false, destroyed: false, closed: false }),
+      false,
+    );
   });
 });
 
