@@ -27,8 +27,15 @@ const NO_CACHE = { cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
  * @param {import("http").IncomingMessage} [ctx.clientReq]
  * @param {number} [ctx.retries]
  */
-export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx = {}) {
-  const { user, clientReq, retries = MAX_RETRIES } = typeof ctx === "number" ? { retries: ctx } : ctx;
+export function pipeZenAsAnthropic(
+  zenOpts,
+  body,
+  model,
+  res,
+  inputTokens,
+  ctx = {},
+) {
+  const { user, clientReq, retries = MAX_RETRIES } = ctx;
   const msgId = ocId("msg");
 
   let currentOpts = zenOpts;
@@ -64,10 +71,15 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
       logLine("RATE LIMITED, exhausted retries", errMsg);
       logIO("OUTPUT (rate_limit)", { error: errMsg });
       res.writeHead(429, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        type: "error",
-        error: { type: "rate_limit_error", message: errMsg + " (free model rate limit)" },
-      }));
+      res.end(
+        JSON.stringify({
+          type: "error",
+          error: {
+            type: "rate_limit_error",
+            message: errMsg + " (free model rate limit)",
+          },
+        }),
+      );
     }
 
     function failUpstream(status, errMsg, type = "upstream_error") {
@@ -75,7 +87,9 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
       terminalHandled = true;
       logLine("UPSTREAM ERROR", errMsg);
       logIO("OUTPUT (error)", { error: errMsg });
-      res.status(status).json({ type: "error", error: { type, message: errMsg } });
+      res
+        .status(status)
+        .json({ type: "error", error: { type, message: errMsg } });
     }
 
     /** @returns {boolean} true if a retry was scheduled */
@@ -127,7 +141,7 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache, no-transform",
-          "Connection": "keep-alive",
+          Connection: "keep-alive",
           "X-Accel-Buffering": "no",
         });
         res.flushHeaders();
@@ -135,9 +149,17 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
         sendSSE("message_start", {
           type: "message_start",
           message: {
-            id: msgId, type: "message", role: "assistant", content: [],
-            model, stop_reason: null,
-            usage: { input_tokens: inputTokens || 0, output_tokens: 0, ...NO_CACHE },
+            id: msgId,
+            type: "message",
+            role: "assistant",
+            content: [],
+            model,
+            stop_reason: null,
+            usage: {
+              input_tokens: inputTokens || 0,
+              output_tokens: 0,
+              ...NO_CACHE,
+            },
           },
         });
       }
@@ -196,7 +218,11 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
           if (payload === "[DONE]") continue;
 
           let parsed;
-          try { parsed = JSON.parse(payload); } catch { continue; }
+          try {
+            parsed = JSON.parse(payload);
+          } catch {
+            continue;
+          }
           const delta = parsed.choices?.[0]?.delta;
           if (!delta) continue;
 
@@ -205,12 +231,17 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
           if (delta.content) {
             collectedText += delta.content;
             if (contentIdx === 0 && toolIdx === -1) {
-              sendSSE("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
+              sendSSE("content_block_start", {
+                type: "content_block_start",
+                index: 0,
+                content_block: { type: "text", text: "" },
+              });
               startedBlocks.add(0);
               contentIdx = 1;
             }
             sendSSE("content_block_delta", {
-              type: "content_block_delta", index: 0,
+              type: "content_block_delta",
+              index: 0,
               delta: { type: "text_delta", text: delta.content },
             });
             outputTokens += Math.ceil(delta.content.length / 4);
@@ -221,24 +252,41 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
               const idx = tc.index ?? 0;
               if (idx > toolIdx) {
                 if (toolIdx === -1 && contentIdx > 0) {
-                  sendSSE("content_block_stop", { type: "content_block_stop", index: 0 });
+                  sendSSE("content_block_stop", {
+                    type: "content_block_stop",
+                    index: 0,
+                  });
                 }
                 toolIdx = idx;
                 const blockIdx = contentIdx > 0 ? idx + 1 : idx;
                 const toolId = tc.id || ocId("toolu");
-                collectedTools[idx] = { id: toolId, name: tc.function?.name || "", arguments: "" };
+                collectedTools[idx] = {
+                  id: toolId,
+                  name: tc.function?.name || "",
+                  arguments: "",
+                };
                 sendSSE("content_block_start", {
-                  type: "content_block_start", index: blockIdx,
-                  content_block: { type: "tool_use", id: toolId, name: tc.function?.name || "" },
+                  type: "content_block_start",
+                  index: blockIdx,
+                  content_block: {
+                    type: "tool_use",
+                    id: toolId,
+                    name: tc.function?.name || "",
+                  },
                 });
                 startedBlocks.add(blockIdx);
               }
               if (tc.function?.arguments) {
-                if (collectedTools[idx]) collectedTools[idx].arguments += tc.function.arguments;
+                if (collectedTools[idx])
+                  collectedTools[idx].arguments += tc.function.arguments;
                 const blockIdx = contentIdx > 0 ? idx + 1 : idx;
                 sendSSE("content_block_delta", {
-                  type: "content_block_delta", index: blockIdx,
-                  delta: { type: "input_json_delta", partial_json: tc.function.arguments },
+                  type: "content_block_delta",
+                  index: blockIdx,
+                  delta: {
+                    type: "input_json_delta",
+                    partial_json: tc.function.arguments,
+                  },
                 });
                 outputTokens += Math.ceil(tc.function.arguments.length / 4);
               }
@@ -249,7 +297,10 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
             const fr = parsed.choices[0].finish_reason;
             const sortedBlocks = [...startedBlocks].sort((a, b) => a - b);
             for (const i of sortedBlocks) {
-              sendSSE("content_block_stop", { type: "content_block_stop", index: i });
+              sendSSE("content_block_stop", {
+                type: "content_block_stop",
+                index: i,
+              });
             }
 
             let stopReason = "end_turn";
@@ -282,7 +333,12 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
           }
           logIO("OUTPUT (empty)", { error: "Empty response" });
           if (!res.headersSent) {
-            res.status(502).json({ type: "error", error: { type: "upstream_error", message: "Empty response" } });
+            res
+              .status(502)
+              .json({
+                type: "error",
+                error: { type: "upstream_error", message: "Empty response" },
+              });
           }
           return;
         }
@@ -307,7 +363,12 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
       logLine("ERROR", e.message);
       logIO("OUTPUT (error)", { error: e.message });
       if (!res.headersSent) {
-        res.status(502).json({ type: "error", error: { type: "upstream_error", message: e.message } });
+        res
+          .status(502)
+          .json({
+            type: "error",
+            error: { type: "upstream_error", message: e.message },
+          });
       }
     });
 
@@ -320,7 +381,12 @@ export function pipeZenAsAnthropic(zenOpts, body, model, res, inputTokens, ctx =
       logLine("TIMEOUT");
       logIO("OUTPUT (timeout)", { error: "Upstream timeout" });
       if (!res.headersSent) {
-        res.status(504).json({ type: "error", error: { type: "timeout_error", message: "Upstream timeout" } });
+        res
+          .status(504)
+          .json({
+            type: "error",
+            error: { type: "timeout_error", message: "Upstream timeout" },
+          });
       }
     });
 

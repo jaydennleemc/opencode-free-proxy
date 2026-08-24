@@ -1,4 +1,4 @@
-import { MAX_RETRIES, RETRY_BASE_MS, RETRY_MAX_MS } from "./config/index.mjs";
+import { RETRY_BASE_MS, RETRY_MAX_MS } from "./config/index.mjs";
 import { rotateSession } from "./session.mjs";
 import { ocId } from "./utils.mjs";
 import { logLine } from "./logger.mjs";
@@ -7,7 +7,11 @@ import { logLine } from "./logger.mjs";
  * Exponential backoff with ±20% jitter.
  * @param {number} attemptIndex 0 = first retry after initial failure
  */
-export function rateLimitRetryDelay(attemptIndex, baseMs = RETRY_BASE_MS, maxMs = RETRY_MAX_MS) {
+export function rateLimitRetryDelay(
+  attemptIndex,
+  baseMs = RETRY_BASE_MS,
+  maxMs = RETRY_MAX_MS,
+) {
   const exp = Math.max(0, attemptIndex | 0);
   const base = Math.min(maxMs, baseMs * 2 ** exp);
   const jitter = base * 0.2 * (Math.random() * 2 - 1);
@@ -44,7 +48,9 @@ export function isClientGone(clientReq, res) {
 
 /** New session id + fresh request id (for rate-limit retries). */
 export function withFreshSession(zenOpts, user) {
-  const sessionId = user ? rotateSession(user) : zenOpts.headers?.["x-opencode-session"];
+  const sessionId = user
+    ? rotateSession(user)
+    : zenOpts.headers?.["x-opencode-session"];
   return {
     ...zenOpts,
     headers: {
@@ -70,8 +76,18 @@ export function isTransientNetworkError(err) {
   if (!err) return false;
   const code = err.code || "";
   const msg = String(err.message || "");
-  if (msg === "timeout" || code === "ETIMEDOUT" || code === "ESOCKETTIMEDOUT") return true;
-  if (["ECONNRESET", "ECONNREFUSED", "EPIPE", "ENOTFOUND", "EAI_AGAIN", "ECONNABORTED"].includes(code)) {
+  if (msg === "timeout" || code === "ETIMEDOUT" || code === "ESOCKETTIMEDOUT")
+    return true;
+  if (
+    [
+      "ECONNRESET",
+      "ECONNREFUSED",
+      "EPIPE",
+      "ENOTFOUND",
+      "EAI_AGAIN",
+      "ECONNABORTED",
+    ].includes(code)
+  ) {
     return true;
   }
   if (/socket hang up/i.test(msg)) return true;
@@ -87,9 +103,11 @@ export function isRateLimitPayload(data, raw = "") {
   if (s.includes("FreeUsageLimitError")) return true;
   const type = data?.error?.type || data?.type;
   const code = data?.error?.code;
-  if (type === "rate_limit_error" || code === "rate_limit_exceeded") return true;
+  if (type === "rate_limit_error" || code === "rate_limit_exceeded")
+    return true;
   const msg = data?.error?.message || data?.message || "";
-  if (/rate\s*limit|usage\s*limit|too many requests|freeusage/i.test(msg)) return true;
+  if (/rate\s*limit|usage\s*limit|too many requests|freeusage/i.test(msg))
+    return true;
   return false;
 }
 
@@ -108,7 +126,8 @@ export function parseErrorPayload(chunkOrData, raw = "") {
   if (Buffer.isBuffer(chunkOrData) || typeof chunkOrData === "string") {
     str = chunkOrData.toString().trim();
     if (!str.startsWith("{")) return null;
-    if (!str.includes("FreeUsageLimitError") && !str.includes('"error"')) return null;
+    if (!str.includes("FreeUsageLimitError") && !str.includes('"error"'))
+      return null;
     try {
       data = JSON.parse(str);
     } catch {
@@ -125,11 +144,6 @@ export function parseErrorPayload(chunkOrData, raw = "") {
   };
 }
 
-/** @deprecated use parseErrorPayload; kept for any external callers */
-export function checkFirstChunkError(chunk) {
-  return parseErrorPayload(chunk)?.message ?? null;
-}
-
 /**
  * Shared retry decision for streaming pipes.
  * Mutates nothing; caller applies session/opts and schedules.
@@ -144,7 +158,8 @@ export function planRetry({ remaining, retries, kind, headers, errMsg }) {
   return {
     delay,
     rotateSession: kind === "rate_limit",
-    label: kind === "rate_limit" ? "RATE LIMITED, retrying" : "TRANSIENT, retrying",
+    label:
+      kind === "rate_limit" ? "RATE LIMITED, retrying" : "TRANSIENT, retrying",
     errMsg: errMsg || kind,
   };
 }
@@ -153,5 +168,3 @@ export function logAndScheduleRetry(plan, remaining, schedule) {
   logLine(plan.label, `(${remaining} left, wait ${plan.delay}ms)`, plan.errMsg);
   schedule(plan.delay);
 }
-
-export { MAX_RETRIES };

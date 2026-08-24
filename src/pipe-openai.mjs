@@ -58,63 +58,6 @@ export function ensureOpenAIIds(payload, toolCallIds = {}, model = "") {
   return payload;
 }
 
-// ── response parsers (for logging) ─────────────────────────────────────────
-
-/** Reconstruct assistant text + tool_calls from OpenAI SSE stream bytes. */
-export function parseOpenAIStreamOutput(raw) {
-  let content = "";
-  const toolCalls = {};
-  let finishReason = null;
-  let usage = null;
-  for (const line of raw.split("\n")) {
-    if (!line.startsWith("data: ")) continue;
-    const payload = line.slice(6).trim();
-    if (!payload || payload === "[DONE]") continue;
-    let parsed;
-    try { parsed = JSON.parse(payload); } catch { continue; }
-    if (parsed.usage) usage = parsed.usage;
-    const choice = parsed.choices?.[0];
-    if (!choice) continue;
-    if (choice.finish_reason) finishReason = choice.finish_reason;
-    const delta = choice.delta || choice.message;
-    if (!delta) continue;
-    if (delta.content) content += delta.content;
-    if (delta.tool_calls) {
-      for (const tc of delta.tool_calls) {
-        const i = tc.index ?? 0;
-        if (!toolCalls[i]) toolCalls[i] = { id: tc.id || "", name: "", arguments: "" };
-        if (tc.id) toolCalls[i].id = tc.id;
-        if (tc.function?.name) toolCalls[i].name = tc.function.name;
-        if (tc.function?.arguments) toolCalls[i].arguments += tc.function.arguments;
-      }
-    }
-  }
-  const out = { content };
-  const tcs = Object.values(toolCalls);
-  if (tcs.length) out.tool_calls = tcs;
-  if (finishReason) out.finish_reason = finishReason;
-  if (usage) out.usage = usage;
-  return out;
-}
-
-export function parseOpenAISyncOutput(data) {
-  if (!data) return { raw: null };
-  const choice = data.choices?.[0];
-  const out = {
-    content: choice?.message?.content ?? null,
-    finish_reason: choice?.finish_reason ?? null,
-    usage: data.usage ?? null,
-  };
-  if (choice?.message?.tool_calls?.length) {
-    out.tool_calls = choice.message.tool_calls.map((tc) => ({
-      id: tc.id,
-      name: tc.function?.name,
-      arguments: tc.function?.arguments,
-    }));
-  }
-  return out;
-}
-
 // ── main pipe ──────────────────────────────────────────────────────────────
 
 /**
@@ -128,10 +71,12 @@ export function parseOpenAISyncOutput(data) {
  * @param {number} [ctx.retries]
  */
 export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
-  const { user, clientReq, retries = MAX_RETRIES } = typeof ctx === "number" ? { retries: ctx } : ctx;
+  const { user, clientReq, retries = MAX_RETRIES } = ctx;
   const toolCallIds = {};
   let requestModel = "";
-  try { requestModel = JSON.parse(body).model || ""; } catch {}
+  try {
+    requestModel = JSON.parse(body).model || "";
+  } catch {}
 
   let currentOpts = zenOpts;
   let aborted = false;
@@ -166,7 +111,11 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
       logLine("RATE LIMITED, exhausted retries", errMsg);
       logIO("OUTPUT (rate_limit)", { error: errMsg });
       res.status(429).json({
-        error: { message: errMsg + " (free model rate limit)", type: "rate_limit_error", code: "rate_limit_exceeded" },
+        error: {
+          message: errMsg + " (free model rate limit)",
+          type: "rate_limit_error",
+          code: "rate_limit_exceeded",
+        },
       });
     }
 
@@ -219,7 +168,7 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
           res.writeHead(200, {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
+            Connection: "keep-alive",
             "X-Accel-Buffering": "no",
             "Transfer-Encoding": "chunked",
           });
@@ -232,7 +181,7 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
       function flushSseBuffer(final = false) {
         if (!stream) return;
         const lines = sseBuffer.split("\n");
-        sseBuffer = final ? "" : (lines.pop() || "");
+        sseBuffer = final ? "" : lines.pop() || "";
         for (const line of lines) {
           const out = transformSseLine(line, toolCallIds, requestModel);
           if (streamLogLines !== null) streamLogLines += out + "\n";
@@ -323,7 +272,14 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
           logLine("EMPTY", "No response from Zen API");
           logIO("OUTPUT (empty)", { error: "Empty response from upstream" });
           if (!res.headersSent) {
-            res.status(502).json({ error: { message: "Empty response from upstream", type: "upstream_error" } });
+            res
+              .status(502)
+              .json({
+                error: {
+                  message: "Empty response from upstream",
+                  type: "upstream_error",
+                },
+              });
           }
           return;
         }
@@ -332,16 +288,20 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
           if (stream) {
             flushSseBuffer(true);
             if (streamLogLines !== null) {
-              logIO(`OUTPUT (stream, ${ms}ms)`, parseOpenAIStreamOutput(streamLogLines));
+              logIO(`OUTPUT (stream, ${ms}ms)`, streamLogLines);
             }
             res.end();
           } else {
             const raw = Buffer.concat(chunks).toString();
             try {
               const parsed = JSON.parse(raw);
-              const updated = ensureOpenAIIds(parsed, toolCallIds, requestModel);
+              const updated = ensureOpenAIIds(
+                parsed,
+                toolCallIds,
+                requestModel,
+              );
               const rawUpdated = JSON.stringify(updated);
-              logIO(`OUTPUT (sync, ${ms}ms)`, parseOpenAISyncOutput(updated));
+              logIO(`OUTPUT (sync, ${ms}ms)`, updated);
               res.end(rawUpdated);
             } catch {
               logIO(`OUTPUT (sync raw, ${ms}ms)`, raw);
@@ -360,7 +320,14 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
       logLine("ERROR", e.message);
       logIO("OUTPUT (error)", { error: e.message });
       if (!res.headersSent) {
-        res.status(502).json({ error: { message: "Upstream error: " + e.message, type: "upstream_error" } });
+        res
+          .status(502)
+          .json({
+            error: {
+              message: "Upstream error: " + e.message,
+              type: "upstream_error",
+            },
+          });
       }
     });
 
@@ -373,7 +340,11 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
       logLine("TIMEOUT");
       logIO("OUTPUT (timeout)", { error: "Upstream timeout" });
       if (!res.headersSent) {
-        res.status(504).json({ error: { message: "Upstream timeout", type: "timeout_error" } });
+        res
+          .status(504)
+          .json({
+            error: { message: "Upstream timeout", type: "timeout_error" },
+          });
       }
     });
 

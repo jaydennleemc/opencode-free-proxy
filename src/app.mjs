@@ -15,11 +15,12 @@ export function createApp() {
 
   // 404 fallback — return JSON for unknown routes
   app.use((_req, res) => {
-    res.status(404).json({ error: { message: "Not found", type: "not_found_error" } });
+    res
+      .status(404)
+      .json({ error: { message: "Not found", type: "not_found_error" } });
   });
 
   // Global error handler — Express 5 also forwards rejected promises from async routes here.
-  // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     logLine("UNHANDLED ERROR", err.message, err.stack);
     if (res.headersSent) {

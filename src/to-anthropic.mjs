@@ -24,7 +24,9 @@ export function openAIToAnthropic(oaiResp, model, inputTokens) {
   if (choice.message?.tool_calls) {
     for (const tc of choice.message.tool_calls) {
       let input = {};
-      try { input = JSON.parse(tc.function.arguments); } catch {}
+      try {
+        input = JSON.parse(tc.function.arguments);
+      } catch {}
       content.push({
         type: "tool_use",
         id: tc.id || ocId("toolu"),
@@ -38,7 +40,6 @@ export function openAIToAnthropic(oaiResp, model, inputTokens) {
   let stopReason = "end_turn";
   if (choice.finish_reason === "tool_calls") stopReason = "tool_use";
   else if (choice.finish_reason === "length") stopReason = "max_tokens";
-  else if (choice.finish_reason === "stop") stopReason = "end_turn";
 
   return {
     id: ocId("msg"),
