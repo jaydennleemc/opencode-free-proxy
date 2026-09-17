@@ -149,7 +149,8 @@ describe("session rotation helpers", () => {
     const next = withFreshSession(opts, "retry-test-user-2");
     assert.notStrictEqual(next.headers["x-opencode-session"], "ses_old");
     assert.notStrictEqual(next.headers["x-opencode-request"], "msg_old");
-    assert.match(next.headers["x-opencode-session"], /^ses_/);
+    assert.match(next.headers["x-opencode-session"], /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    assert.match(next.headers["x-opencode-request"], /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
   });
 
   it("withFreshRequestId keeps session", () => {
@@ -162,5 +163,6 @@ describe("session rotation helpers", () => {
     const next = withFreshRequestId(opts);
     assert.strictEqual(next.headers["x-opencode-session"], "ses_keep");
     assert.notStrictEqual(next.headers["x-opencode-request"], "msg_old");
+    assert.match(next.headers["x-opencode-request"], /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
   });
 });

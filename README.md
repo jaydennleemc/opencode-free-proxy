@@ -177,11 +177,11 @@ The proxy adds `x-opencode-*` authentication headers that the Zen API requires. 
 
 ```
 Authorization: Bearer public
-User-Agent: opencode/1.15.0 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.13
+User-Agent: opencode/1.18.31 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.13
 x-opencode-client: cli
 x-opencode-project: global
-x-opencode-request: msg_<unique_id>
-x-opencode-session: ses_<unique_id>
+x-opencode-request: msg_<26-char OpenCode id>
+x-opencode-session: ses_<26-char OpenCode id>
 ```
 
 ## License
