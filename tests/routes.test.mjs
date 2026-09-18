@@ -52,6 +52,71 @@ describe("route auth", () => {
   });
 });
 
+describe("custom model names (cursor++ etc.)", () => {
+  it("GET /v1/models/:id returns 200 for an unlisted model id", async () => {
+    await withServer(async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/models/my-custom-model`);
+      assert.strictEqual(res.status, 200);
+      const body = await res.json();
+      assert.strictEqual(body.object, "model");
+      assert.strictEqual(body.id, "my-custom-model");
+    });
+  });
+
+  it("POST /v1/chat/completions does not 400 on an unlisted model id", async () => {
+    await withServer(async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKeys.admin}`,
+        },
+        body: JSON.stringify({
+          model: "my-custom-model",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      });
+      // No opencode serve running in tests → upstream failure is fine;
+      // the point is the proxy itself no longer rejects the model id.
+      const body = await res.json().catch(() => ({}));
+      assert.notStrictEqual(res.status, 400, `expected non-400, got: ${JSON.stringify(body)}`);
+    });
+  });
+
+  it("POST /v1/messages does not 400 on an unlisted model id", async () => {
+    await withServer(async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKeys.admin,
+        },
+        body: JSON.stringify({
+          model: "my-custom-model",
+          max_tokens: 16,
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      assert.notStrictEqual(res.status, 400, `expected non-400, got: ${JSON.stringify(body)}`);
+    });
+  });
+
+  it("still 400s when model is missing", async () => {
+    await withServer(async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKeys.admin}`,
+        },
+        body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }),
+      });
+      assert.strictEqual(res.status, 400);
+    });
+  });
+});
+
 describe("express 5 body handling", () => {
   it("returns 400 when chat body is missing (req.body undefined)", async () => {
     await withServer(async (port) => {

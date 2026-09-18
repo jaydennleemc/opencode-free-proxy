@@ -1,6 +1,6 @@
 {
   "name": "opencode-free-proxy",
-  "version": "0.2.0",
+  "version": "0.1.9",
   "description": "Proxy server for OpenCode free-tier AI models via local opencode serve",
   "type": "module",
   "main": "src/index.mjs",

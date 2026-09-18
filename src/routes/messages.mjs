@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { MODELS } from "../config/index.mjs";
 import { auth } from "../auth.mjs";
 import { getPool } from "../session-pool.mjs";
 import { runPrompt, writeSseHeaders, clientGone } from "../pipeline.mjs";
@@ -27,10 +26,11 @@ router.post("/v1/messages", async (req, res) => {
   }
 
   const { model, stream } = req.body;
-  if (!MODELS.includes(model)) {
+  // Any non-empty model id passes through to opencode serve (see chat.mjs).
+  if (typeof model !== "string" || !model.trim()) {
     return res.status(400).json({
       type: "error",
-      error: { type: "invalid_request_error", message: `Unknown model: ${model}. Available: ${MODELS.join(", ")}` },
+      error: { type: "invalid_request_error", message: "model is required" },
     });
   }
 

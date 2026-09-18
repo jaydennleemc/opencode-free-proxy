@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { MODELS } from "../config/index.mjs";
 import { auth } from "../auth.mjs";
 import { getPool } from "../session-pool.mjs";
 import { runPrompt, writeSseHeaders, clientGone } from "../pipeline.mjs";
@@ -12,7 +11,7 @@ import { logLine, logIO, msgSummary } from "../logger.mjs";
 
 const router = Router();
 
-router.post("/v1/chat/completions", async (req, res) => {
+router.post(["/v1/chat/completions", "/chat/completions"], async (req, res) => {
   const user = auth(req);
   if (!user) return res.status(401).json({ error: { message: "Invalid API key" } });
 
@@ -23,10 +22,13 @@ router.post("/v1/chat/completions", async (req, res) => {
   }
 
   const { model, messages, stream, tools } = req.body;
-  if (!MODELS.includes(model)) {
+  // Any non-empty model id passes through to opencode serve — clients with
+  // custom model names (e.g. Cursor via cursor++) must not be gated here.
+  // Unknown ids surface as upstream 4xx from opencode itself.
+  if (typeof model !== "string" || !model.trim()) {
     return res
       .status(400)
-      .json({ error: { message: `Unknown model: ${model}. Available: ${MODELS.join(", ")}` } });
+      .json({ error: { message: "model is required", type: "invalid_request_error" } });
   }
   if (tools?.length) {
     logLine("NOTE: tools ignored — local opencode session can't run client-side tool loops");
