@@ -10,6 +10,7 @@ services:
       - "${PROXY_BIND:-127.0.0.1}:${PROXY_PORT:-6446}:6446"
     environment:
       PROXY_PORT: "6446"
+      OPENCODE_PORT: "4096"
       KEYS_FILE: /data/api-keys.json
       NODE_ENV: production
       # Prefer Docker secrets / compose env file over plaintext in shell history
@@ -20,27 +21,27 @@ services:
       LOG_MAX_CHARS: "${LOG_MAX_CHARS:-0}"
       FORCE_COLOR: "${FORCE_COLOR:-}"
     volumes:
-      # Persist auto-generated API keys across container recreations
-      - proxy-keys:/data
+      # Persist API keys + opencode's global state across container recreations
+      - proxy-data:/data
+      - opencode-state:/home/node/.local/share/opencode
     # ── Hardening ───────────────────────────────────────────
     read_only: true
     tmpfs:
-      - /tmp:noexec,nosuid,size=16m
+      - /tmp:nosuid,size=64m
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    # Non-root user comes from Dockerfile (USER node). Do not override unless
-    # you also chown the keys volume for that uid.
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 512M
+          cpus: "2.0"
+          memory: 2G
         reservations:
           cpus: "0.1"
-          memory: 64M
+          memory: 128M
     restart: unless-stopped
 
 volumes:
-  proxy-keys:
+  proxy-data:
+  opencode-state:
