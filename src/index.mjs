@@ -1,11 +1,9 @@
 import { createApp } from "./app.mjs";
 import { PORT, PROXY_VERSION, MODELS } from "./config/index.mjs";
 import { loadKeys, apiKeys } from "./auth.mjs";
-import { startOpencode } from "./opencode.mjs";
 import { logLine, logStatusLine } from "./logger.mjs";
 
 loadKeys();
-await startOpencode();
 
 const app = createApp();
 // Express 5: listen errors (e.g. EADDRINUSE) are passed to this callback instead of thrown.

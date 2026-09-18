@@ -15,7 +15,7 @@ npm start
 
 Done. Server is at `http://localhost:6446`. API keys are in `api-keys.json` (auto-generated on first run).
 
-`npm install` pulls the `opencode` binary (~100MB) as a dependency — the proxy spawns `opencode serve` and routes all completions through it.
+`npm install` then `npm start`. The proxy talks to `opencode.ai/zen` directly with the official-client fingerprint the free tier requires.
 
 ## What you get
 
@@ -31,7 +31,7 @@ The server currently serves these free models (check `/v1/models` at runtime for
 | `muse-spark-1.2-contributor-free` | Muse Spark 1.2 |
 | `muse-spark-1.3-contributor-free` | Muse Spark 1.3 |
 
-All models support streaming and system messages. **Tool calling is flattened to text** — the local opencode session can't run client-side tool loops, so `tools` in the request are ignored and history `tool_calls` / `tool_result` messages are inlined as transcript text.
+All models support streaming, system messages, and tool calling. Cursor's own tool names are forwarded; the proxy injects the four OpenCode fingerprint tools (`bash`, `glob`, `grep`, `read`) that the free-tier gate requires.
 
 ## API
 
@@ -82,7 +82,7 @@ docker compose up -d --build
 docker exec opencode-free-proxy cat /data/api-keys.json
 ```
 
-The image bundles the opencode binary; no host install needed.
+API keys persist in the `proxy-data` volume.
 
 ## Use with tools
 
@@ -103,11 +103,6 @@ The image bundles the opencode binary; no host install needed.
 |----------|---------|------|
 | `PROXY_PORT` | `6446` | Proxy listen port |
 | `KEYS_FILE` | `./api-keys.json` | API keys file path |
-| `OPENCODE_PORT` | `4096` | Port for the spawned `opencode serve` |
-| `OPENCODE_AGENT` | `build` | Agent name sent with prompts. **Must be a native opencode agent** — the free tier rejects custom agents. |
-| `OPENCODE_BIN` | — | Override path to the opencode binary |
-| `OC_TIMEOUT_MS` | `120000` | Max wait for one prompt reply |
-| `SESSION_POOL_SIZE` | `4` | Concurrent sessions per API-key user |
 | `MAX_RETRIES` | `12` | Rate-limit / transient retries after first attempt |
 | `RETRY_BASE_MS` | `1000` | First retry delay; doubles each attempt |
 | `RETRY_MAX_MS` | `30000` | Backoff cap |
@@ -122,17 +117,21 @@ Your tool (Cursor, CLI, curl, etc.)
         │
         ▼
   opencode-free-proxy        ← this server, translates formats
-        │  POST /session/{id}/message
+        │  HTTPS  POST /zen/v1/chat/completions
         ▼
-  opencode serve             ← local instance, spawned by the proxy
-        │  HTTPS
-        ▼
-  opencode.ai/zen            ← free tier (only accepts the real client)
+  opencode.ai/zen            ← free tier
 ```
 
-v0.1 talked to `opencode.ai/zen/v1` directly with reverse-engineered headers. As of 2026-09-16 OpenCode moved the free-tier check into their closed-source inference layer and rejects anything that isn't a genuine opencode session (`FreeTierError: OpenCode's free tier can only be used from within OpenCode`). So v0.2 runs a real `opencode serve` under the hood and relays through its session API — the upstream gate stays satisfied no matter how it evolves.
+The free-tier gate (`FreeTierError: OpenCode's free tier can only be used from within OpenCode`) is **not** encrypted inference. It fingerprints the official client on four axes:
 
-Per request the proxy: acquires a session from a per-user pool → replays prior history via `noReply` prompts (context caching) → sends the final user message → translates the reply into OpenAI or Anthropic shape. On 429 the session is rotated (fresh free-tier quota) and the request retried with backoff.
+1. `User-Agent: opencode/<version>` with version ≥ 1.17
+2. Canonical `x-opencode-session` / `x-opencode-request` ids (`prefix_` + 12 hex time bytes + 14 base62)
+3. Request body includes tools named `{bash, glob, grep, read}` (extras allowed)
+4. `stream: true` (non-stream is 403)
+
+v0.2 talks to Zen directly: forces `stream: true` upstream, injects any missing fingerprint tools (Cursor's own tools are kept), and folds SSE back into JSON for sync clients. An earlier serve-spawn experiment still 403'd Cursor — that path is gone.
+
+On 429 the session id is rotated (fresh free-tier quota) and the request retried with backoff.
 
 ## License
 

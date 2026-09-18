@@ -1,7 +1,7 @@
 {
   "name": "opencode-free-proxy",
-  "version": "0.1.9",
-  "description": "Proxy server for OpenCode free-tier AI models via local opencode serve",
+  "version": "0.2.0",
+  "description": "Proxy server for OpenCode free-tier AI models via Zen API",
   "type": "module",
   "main": "src/index.mjs",
   "scripts": {
@@ -12,8 +12,7 @@
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "express": "^5.2.1",
-    "opencode-ai": "^1.18.31"
+    "express": "^5.2.1"
   },
   "engines": {
     "node": ">=20"

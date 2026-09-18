@@ -10,7 +10,6 @@ services:
       - "${PROXY_BIND:-127.0.0.1}:${PROXY_PORT:-6446}:6446"
     environment:
       PROXY_PORT: "6446"
-      OPENCODE_PORT: "4096"
       KEYS_FILE: /data/api-keys.json
       NODE_ENV: production
       # Prefer Docker secrets / compose env file over plaintext in shell history
@@ -21,9 +20,7 @@ services:
       LOG_MAX_CHARS: "${LOG_MAX_CHARS:-0}"
       FORCE_COLOR: "${FORCE_COLOR:-}"
     volumes:
-      # Persist API keys + opencode's global state across container recreations
       - proxy-data:/data
-      - opencode-state:/home/node/.local/share/opencode
     # ── Hardening ───────────────────────────────────────────
     read_only: true
     tmpfs:
@@ -36,7 +33,7 @@ services:
       resources:
         limits:
           cpus: "2.0"
-          memory: 2G
+          memory: 256M
         reservations:
           cpus: "0.1"
           memory: 128M
@@ -44,4 +41,3 @@ services:
 
 volumes:
   proxy-data:
-  opencode-state:
