@@ -20,13 +20,13 @@ export default function RecentTable({ rows }: { rows: RecentRow[] }) {
           {rows.map((r, i) => (
             <tr
               key={`${r.ts}-${i}`}
-              className="tnum border-b border-hairline/50 text-xs last:border-0"
+              className="tnum border-b border-hairline/50 text-xs transition-[background-color] duration-100 last:border-0 hover:bg-white/[0.02]"
             >
               <td className="py-2 pr-3 whitespace-nowrap text-dim">
                 {dateClock(r.ts)}
               </td>
               <td className="py-2 pr-3">
-                <span className="rounded-sm bg-hairline/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-dim">
+                <span className="rounded bg-hairline/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-dim">
                   {r.endpoint}
                 </span>
               </td>

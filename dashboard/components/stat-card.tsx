@@ -20,7 +20,7 @@ export default function StatCard({
             ? "text-amber"
             : "text-ink";
   return (
-    <div className="rounded-md border border-hairline bg-panel px-4 py-3">
+    <div className="surface rounded-lg bg-panel px-4 py-3">
       <div className="text-[11px] uppercase tracking-widest text-dim">
         {label}
       </div>

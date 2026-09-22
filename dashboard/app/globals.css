@@ -18,10 +18,106 @@ body {
   background: var(--color-base);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Tabular figures for every number on the board */
 .tnum {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Surface shadows (dark mode) ──────────────────────────── */
+
+/*
+ * Shadow-as-border: replaces borders on cards/panels for depth.
+ * Borders are reserved for structural dividers (table rows, header).
+ * Dark mode: single white ring at low opacity.
+ */
+.surface {
+  box-shadow: 0 0 0 1px oklch(1 0 0 / 0.06);
+  transition-property: box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.surface:hover {
+  box-shadow: 0 0 0 1px oklch(1 0 0 / 0.1);
+}
+
+.surface-elevated {
+  box-shadow:
+    0 0 0 1px oklch(1 0 0 / 0.08),
+    0 4px 12px -4px oklch(0 0 0 / 0.4);
+}
+
+/* Tooltip shadow */
+.tooltip-shadow {
+  box-shadow:
+    0 0 0 1px oklch(1 0 0 / 0.1),
+    0 8px 24px -4px oklch(0 0 0 / 0.5);
+}
+
+/* ── Focus ring ───────────────────────────────────────────── */
+
+.focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition-property: outline-color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.focus-ring:focus-visible {
+  outline-color: var(--color-teal);
+}
+
+/* ── Scale on press ───────────────────────────────────────── */
+
+.press-scale {
+  transition-property: scale;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.press-scale:active:not(:disabled) {
+  scale: 0.96;
+}
+
+/* ── Staggered entrance ───────────────────────────────────── */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.stagger-enter {
+  animation: fadeInUp 400ms ease-out forwards;
+  opacity: 0;
+}
+
+.stagger-enter:nth-child(1) { animation-delay: 0ms; }
+.stagger-enter:nth-child(2) { animation-delay: 80ms; }
+.stagger-enter:nth-child(3) { animation-delay: 160ms; }
+.stagger-enter:nth-child(4) { animation-delay: 240ms; }
+.stagger-enter:nth-child(5) { animation-delay: 320ms; }
+.stagger-enter:nth-child(6) { animation-delay: 400ms; }
+.stagger-enter:nth-child(7) { animation-delay: 480ms; }
+.stagger-enter:nth-child(8) { animation-delay: 560ms; }
+
+/* ── Reduced motion ───────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .stagger-enter {
+    animation: none;
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
 }

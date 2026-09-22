@@ -14,7 +14,6 @@ import KeysPanel from "./keys-panel";
 const fetcher = async (url: string): Promise<MetricsResponse> => {
   const res = await fetch(url);
   if (res.status === 401) {
-    // session gone — back to login
     window.location.href = "/login";
     throw new Error("not logged in");
   }
@@ -65,12 +64,18 @@ export default function Dashboard() {
               updated {clock(Date.now())}
             </span>
           )}
-          <nav className="flex overflow-hidden rounded-md border border-hairline">
+          <nav
+            className="flex overflow-hidden rounded-lg"
+            role="tablist"
+            aria-label="Time range"
+          >
             {RANGES.map((r) => (
               <button
                 key={r}
+                role="tab"
+                aria-selected={range === r}
                 onClick={() => setRange(r)}
-                className={`tnum px-3 py-1.5 text-xs transition-colors ${
+                className={`tnum press-scale focus-ring px-3 py-1.5 text-xs ${
                   range === r
                     ? "bg-teal/15 text-teal"
                     : "text-dim hover:text-ink"
@@ -82,16 +87,16 @@ export default function Dashboard() {
           </nav>
           <button
             onClick={logout}
-            className="tnum rounded-md border border-hairline px-3 py-1.5 text-xs text-dim transition-colors hover:text-ink"
+            className="tnum press-scale focus-ring rounded-lg border border-hairline px-3 py-1.5 text-xs text-dim transition-[color,box-shadow] hover:text-ink"
           >
             log out
           </button>
         </div>
       </header>
 
-      {/* ── error banner (keeps last good data visible) ── */}
+      {/* ── error banner ── */}
       {error && (
-        <div className="tnum mt-4 rounded-md border border-red/40 bg-red/10 px-4 py-2 text-xs text-red">
+        <div className="tnum mt-4 rounded-lg border border-red/40 bg-red/10 px-4 py-2 text-xs text-red">
           proxy feed unavailable — {error.message}
           {data ? " · showing last good data" : ""}
         </div>
@@ -112,31 +117,41 @@ export default function Dashboard() {
         <>
           {/* ── KPI row ── */}
           <section className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <StatCard
-              label="input tokens"
-              value={compact(totals!.inputTokens)}
-              accent="teal"
-            />
-            <StatCard
-              label="output tokens"
-              value={compact(totals!.outputTokens)}
-              accent="violet"
-            />
-            <StatCard label="requests" value={compact(totals!.requests)} />
-            <StatCard
-              label="error rate"
-              value={errorRate}
-              accent={totals!.errors > 0 ? "red" : undefined}
-              sub={`${totals!.errors} failed`}
-            />
-            <StatCard
-              label="avg latency"
-              value={latency(totals!.avgLatencyMs)}
-            />
+            <div className="stagger-enter">
+              <StatCard
+                label="input tokens"
+                value={compact(totals!.inputTokens)}
+                accent="teal"
+              />
+            </div>
+            <div className="stagger-enter">
+              <StatCard
+                label="output tokens"
+                value={compact(totals!.outputTokens)}
+                accent="violet"
+              />
+            </div>
+            <div className="stagger-enter">
+              <StatCard label="requests" value={compact(totals!.requests)} />
+            </div>
+            <div className="stagger-enter">
+              <StatCard
+                label="error rate"
+                value={errorRate}
+                accent={totals!.errors > 0 ? "red" : undefined}
+                sub={`${totals!.errors} failed`}
+              />
+            </div>
+            <div className="stagger-enter">
+              <StatCard
+                label="avg latency"
+                value={latency(totals!.avgLatencyMs)}
+              />
+            </div>
           </section>
 
           {/* ── tokens over time ── */}
-          <section className="mt-4 rounded-md border border-hairline bg-panel p-4">
+          <section className="stagger-enter mt-4 rounded-lg bg-panel p-4 surface">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="text-[11px] uppercase tracking-widest text-dim">
                 tokens over time
@@ -155,7 +170,7 @@ export default function Dashboard() {
           </section>
 
           {/* ── recent requests ── */}
-          <section className="mt-4 rounded-md border border-hairline bg-panel p-4">
+          <section className="stagger-enter mt-4 rounded-lg bg-panel p-4 surface">
             <h2 className="mb-2 text-[11px] uppercase tracking-widest text-dim">
               recent requests
             </h2>
@@ -163,14 +178,14 @@ export default function Dashboard() {
           </section>
 
           {/* ── model + key breakdowns ── */}
-          <section className="mt-4 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-md border border-hairline bg-panel p-4">
+          <section className="stagger-enter mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg bg-panel p-4 surface">
               <h2 className="mb-2 text-[11px] uppercase tracking-widest text-dim">
                 tokens by model
               </h2>
               <ModelChart rows={data.byModel} />
             </div>
-            <div className="rounded-md border border-hairline bg-panel p-4">
+            <div className="rounded-lg bg-panel p-4 surface">
               <h2 className="mb-2 text-[11px] uppercase tracking-widest text-dim">
                 by api key
               </h2>
@@ -187,7 +202,7 @@ export default function Dashboard() {
                   {data.byKey.map((k) => (
                     <tr
                       key={k.keyLabel}
-                      className="tnum border-b border-hairline/50 last:border-0"
+                      className="tnum border-b border-hairline/50 transition-[background-color] duration-100 last:border-0 hover:bg-white/[0.02]"
                     >
                       <td className="py-2 text-ink">{k.keyLabel}</td>
                       <td className="py-2 text-right">{compact(k.requests)}</td>
@@ -207,7 +222,9 @@ export default function Dashboard() {
           </section>
 
           {/* ── key management (admin only) ── */}
-          <KeysPanel />
+          <div className="stagger-enter">
+            <KeysPanel />
+          </div>
         </>
       )}
     </main>

@@ -43,8 +43,10 @@ export default function ModelChart({ rows }: { rows: ModelRow[] }) {
         <Tooltip
           contentStyle={{
             background: "#12161d",
-            border: "1px solid #1e2632",
-            borderRadius: 6,
+            border: "none",
+            borderRadius: 8,
+            boxShadow:
+              "0 0 0 1px oklch(1 0 0 / 0.1), 0 8px 24px -4px oklch(0 0 0 / 0.5)",
             fontFamily: "monospace",
             fontSize: 12,
           }}

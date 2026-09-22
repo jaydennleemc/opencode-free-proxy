@@ -79,7 +79,7 @@ export default function KeysPanel() {
   }
 
   return (
-    <section className="mt-4 rounded-md border border-hairline bg-panel p-4">
+    <section className="mt-4 rounded-lg bg-panel p-4 surface">
       <h2 className="mb-3 text-[11px] uppercase tracking-widest text-dim">
         api keys
       </h2>
@@ -89,25 +89,25 @@ export default function KeysPanel() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="new key name (e.g. laptop)"
-          className="tnum w-64 rounded-md border border-hairline bg-base px-3 py-1.5 text-xs text-ink outline-none placeholder:text-dim/50 focus:border-teal"
+          className="tnum w-64 rounded-lg border border-hairline bg-base px-3 py-1.5 text-xs text-ink placeholder:text-dim/50 focus:border-teal focus-visible:outline-2 focus-visible:outline-teal focus-visible:outline-offset-2 transition-[border-color] duration-150 ease-out"
         />
         <button
           type="submit"
           disabled={busy || !name.trim()}
-          className="tnum rounded-md bg-teal/15 px-3 py-1.5 text-xs text-teal transition-colors hover:bg-teal/25 disabled:opacity-40"
+          className="tnum press-scale focus-ring rounded-lg bg-teal/15 px-3 py-1.5 text-xs text-teal transition-[color,background-color] duration-150 ease-out hover:bg-teal/25 disabled:opacity-40"
         >
           create key
         </button>
       </form>
 
       {created && (
-        <div className="tnum mb-3 flex flex-wrap items-center gap-2 rounded-md border border-teal/40 bg-teal/10 px-3 py-2 text-xs">
+        <div className="tnum mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-teal/40 bg-teal/10 px-3 py-2 text-xs">
           <span className="text-dim">created</span>
           <span className="text-ink">{created.name}</span>
           <span className="text-teal">{created.key}</span>
           <button
             onClick={() => copy(created.key, "created")}
-            className="rounded-sm bg-hairline/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-dim hover:text-ink"
+            className="press-scale focus-ring rounded bg-hairline/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-dim transition-[color] duration-100 hover:text-ink"
           >
             {copied === "created" ? "copied" : "copy"}
           </button>
@@ -115,7 +115,7 @@ export default function KeysPanel() {
       )}
 
       {actionError && (
-        <p className="tnum mb-3 rounded-md border border-red/40 bg-red/10 px-3 py-2 text-xs text-red">
+        <p className="tnum mb-3 rounded-lg border border-red/40 bg-red/10 px-3 py-2 text-xs text-red">
           {actionError}
         </p>
       )}
@@ -130,13 +130,16 @@ export default function KeysPanel() {
         </thead>
         <tbody>
           {keys.map((k) => (
-            <tr key={k.name} className="tnum border-b border-hairline/50 text-xs last:border-0">
+            <tr
+              key={k.name}
+              className="tnum border-b border-hairline/50 text-xs transition-[background-color] duration-100 last:border-0 hover:bg-white/[0.02]"
+            >
               <td className="py-2 text-ink">{k.name}</td>
               <td className="py-2 text-dim">
                 {k.key.slice(0, 10)}…{k.key.slice(-4)}
                 <button
                   onClick={() => copy(k.key, k.name)}
-                  className="ml-2 rounded-sm bg-hairline/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-dim hover:text-ink"
+                  className="press-scale focus-ring ml-2 rounded bg-hairline/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-dim transition-[color] duration-100 hover:text-ink"
                 >
                   {copied === k.name ? "copied" : "copy"}
                 </button>
@@ -145,7 +148,7 @@ export default function KeysPanel() {
                 {k.name !== "admin" && (
                   <button
                     onClick={() => removeKey(k.name)}
-                    className="rounded-sm bg-red/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-red hover:bg-red/20"
+                    className="press-scale focus-ring rounded bg-red/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-red transition-[background-color] duration-100 hover:bg-red/20"
                   >
                     delete
                   </button>
