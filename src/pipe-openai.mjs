@@ -12,16 +12,34 @@ import {
   withFreshSession,
   withFreshRequestId,
 } from "./retry.mjs";
+import { recordRequest } from "./metrics.mjs";
 
 // ── shared helpers ─────────────────────────────────────────────────────────
 
+/** Track token usage seen in Zen chunks (real) or estimated from text length. */
+function trackUsage(track, parsed) {
+  if (!track) return;
+  if (parsed.usage) track.usage = parsed.usage;
+  const d = parsed.choices?.[0]?.delta || {};
+  if (typeof d.content === "string") track.outputChars += d.content.length;
+  if (typeof d.reasoning_content === "string")
+    track.outputChars += d.reasoning_content.length;
+  if (Array.isArray(d.tool_calls)) {
+    for (const tc of d.tool_calls) {
+      if (typeof tc.function?.arguments === "string")
+        track.outputChars += tc.function.arguments.length;
+    }
+  }
+}
+
 /** Transform an SSE data line: inject missing OpenAI ids. */
-function transformSseLine(line, toolCallIds, requestModel) {
+function transformSseLine(line, toolCallIds, requestModel, track) {
   if (!line.startsWith("data: ")) return line;
   const payload = line.slice(6).trim();
   if (!payload || payload === "[DONE]") return line;
   try {
     const parsed = JSON.parse(payload);
+    trackUsage(track, parsed);
     const updated = ensureOpenAIIds(parsed, toolCallIds, requestModel);
     return "data: " + JSON.stringify(updated);
   } catch {
@@ -39,6 +57,7 @@ export function aggregateSseToCompletion(raw, model = "") {
   let outModel = model;
   let content = "";
   let reasoning = "";
+  let usage;
   const toolCalls = {};
   let finish = "stop";
 
@@ -55,6 +74,7 @@ export function aggregateSseToCompletion(raw, model = "") {
     if (parsed.id) id = parsed.id;
     if (parsed.created) created = parsed.created;
     if (parsed.model) outModel = parsed.model;
+    if (parsed.usage) usage = parsed.usage;
     const choice = parsed.choices?.[0];
     if (!choice) continue;
     const d = choice.delta || {};
@@ -92,6 +112,7 @@ export function aggregateSseToCompletion(raw, model = "") {
     created: created || Math.floor(Date.now() / 1000),
     model: outModel,
     choices: [{ index: 0, message, finish_reason: finish }],
+    ...(usage ? { usage } : {}),
   };
 }
 
@@ -135,14 +156,33 @@ export function ensureOpenAIIds(payload, toolCallIds = {}, model = "") {
  * @param {string} [ctx.user] API key user id (for session rotation)
  * @param {import("http").IncomingMessage} [ctx.clientReq] client request (abort detection)
  * @param {number} [ctx.retries]
+ * @param {object} [ctx.metrics] { endpoint, model, inputTokens } for metrics recording
  */
 export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
-  const { user, clientReq, retries = MAX_RETRIES } = ctx;
+  const { user, clientReq, retries = MAX_RETRIES, metrics: metricsCtx } = ctx;
   const toolCallIds = {};
+  const requestStart = Date.now();
+  const track = { usage: null, outputChars: 0 };
   let requestModel = "";
   try {
     requestModel = JSON.parse(body).model || "";
   } catch {}
+
+  /** Record the final outcome of this client request (called once, at terminal paths). */
+  function done(status, error = null) {
+    recordRequest({
+      endpoint: metricsCtx?.endpoint || "chat",
+      model: requestModel || metricsCtx?.model || "unknown",
+      keyLabel: user || "unknown",
+      inputTokens: track.usage?.prompt_tokens ?? metricsCtx?.inputTokens ?? 0,
+      outputTokens:
+        track.usage?.completion_tokens ?? Math.ceil(track.outputChars / 4),
+      estimated: !track.usage,
+      status,
+      latencyMs: Date.now() - requestStart,
+      error,
+    });
+  }
 
   let currentOpts = zenOpts;
   let aborted = false;
@@ -174,6 +214,7 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
     function failRateLimit(errMsg) {
       if (terminalHandled || res.headersSent) return;
       terminalHandled = true;
+      done("rate_limited", errMsg);
       logLine("RATE LIMITED, exhausted retries", errMsg);
       logIO("OUTPUT (rate_limit)", { error: errMsg });
       res.status(429).json({
@@ -188,6 +229,7 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
     function failUpstream(status, errMsg, type = "upstream_error") {
       if (terminalHandled || res.headersSent) return;
       terminalHandled = true;
+      done("error", errMsg);
       logLine("UPSTREAM ERROR", errMsg);
       logIO("OUTPUT (error)", { error: errMsg });
       res.status(status).json({ error: { message: errMsg, type } });
@@ -249,12 +291,12 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
         const lines = sseBuffer.split("\n");
         sseBuffer = final ? "" : lines.pop() || "";
         for (const line of lines) {
-          const out = transformSseLine(line, toolCallIds, requestModel);
+          const out = transformSseLine(line, toolCallIds, requestModel, track);
           if (streamLogLines !== null) streamLogLines += out + "\n";
           res.write(out + "\n");
         }
         if (final && sseBuffer) {
-          const out = transformSseLine(sseBuffer, toolCallIds, requestModel);
+          const out = transformSseLine(sseBuffer, toolCallIds, requestModel, track);
           if (streamLogLines !== null) streamLogLines += out + "\n";
           res.write(out + "\n");
         }
@@ -337,6 +379,7 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
           }
           logLine("EMPTY", "No response from Zen API");
           logIO("OUTPUT (empty)", { error: "Empty response from upstream" });
+          done("error", "Empty response from upstream");
           if (!res.headersSent) {
             res
               .status(502)
@@ -356,6 +399,7 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
             if (streamLogLines !== null) {
               logIO(`OUTPUT (stream, ${ms}ms)`, streamLogLines);
             }
+            done("ok");
             res.end();
           } else {
             const raw = Buffer.concat(chunks).toString();
@@ -365,6 +409,10 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
               toolCallIds,
               requestModel,
             );
+            if (updated.usage) track.usage = updated.usage;
+            else if (updated.choices?.[0]?.message?.content)
+              track.outputChars += updated.choices[0].message.content.length;
+            done("ok");
             logIO(`OUTPUT (sync, ${ms}ms)`, updated);
             res.status(200).json(updated);
           }
@@ -379,6 +427,7 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
       }
       logLine("ERROR", e.message);
       logIO("OUTPUT (error)", { error: e.message });
+      done("error", e.message);
       if (!res.headersSent) {
         res
           .status(502)
@@ -399,6 +448,7 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
       intentionalClose = false;
       logLine("TIMEOUT");
       logIO("OUTPUT (timeout)", { error: "Upstream timeout" });
+      done("error", "Upstream timeout");
       if (!res.headersSent) {
         res
           .status(504)

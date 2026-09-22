@@ -88,6 +88,7 @@ router.post(["/v1/responses", "/responses"], (req, res) => {
   pipeZenAsResponse(options, finalBody, model, stream, res, inputTokens, {
     user,
     clientReq: req,
+    metrics: { endpoint: "responses", model, inputTokens },
   });
 });
 

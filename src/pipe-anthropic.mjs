@@ -12,6 +12,7 @@ import {
   withFreshSession,
   withFreshRequestId,
 } from "./retry.mjs";
+import { recordRequest } from "./metrics.mjs";
 
 const NO_CACHE = { cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
 
@@ -26,6 +27,7 @@ const NO_CACHE = { cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
  * @param {string} [ctx.user]
  * @param {import("http").IncomingMessage} [ctx.clientReq]
  * @param {number} [ctx.retries]
+ * @param {object} [ctx.metrics] { endpoint, model, inputTokens } for metrics recording
  */
 export function pipeZenAsAnthropic(
   zenOpts,
@@ -35,8 +37,26 @@ export function pipeZenAsAnthropic(
   inputTokens,
   ctx = {},
 ) {
-  const { user, clientReq, retries = MAX_RETRIES } = ctx;
+  const { user, clientReq, retries = MAX_RETRIES, metrics: metricsCtx } = ctx;
   const msgId = ocId("msg");
+  const requestStart = Date.now();
+  let usageSeen = null;
+  let outputChars = 0;
+
+  /** Record the final outcome of this client request (called once, at terminal paths). */
+  function done(status, error = null) {
+    recordRequest({
+      endpoint: metricsCtx?.endpoint || "messages",
+      model: model || "unknown",
+      keyLabel: user || "unknown",
+      inputTokens: usageSeen?.prompt_tokens ?? inputTokens ?? 0,
+      outputTokens: usageSeen?.completion_tokens ?? Math.ceil(outputChars / 4),
+      estimated: !usageSeen,
+      status,
+      latencyMs: Date.now() - requestStart,
+      error,
+    });
+  }
 
   let currentOpts = zenOpts;
   let aborted = false;
@@ -68,6 +88,7 @@ export function pipeZenAsAnthropic(
     function failRateLimit(errMsg) {
       if (terminalHandled || res.headersSent) return;
       terminalHandled = true;
+      done("rate_limited", errMsg);
       logLine("RATE LIMITED, exhausted retries", errMsg);
       logIO("OUTPUT (rate_limit)", { error: errMsg });
       res.writeHead(429, { "Content-Type": "application/json" });
@@ -85,6 +106,7 @@ export function pipeZenAsAnthropic(
     function failUpstream(status, errMsg, type = "upstream_error") {
       if (terminalHandled || res.headersSent) return;
       terminalHandled = true;
+      done("error", errMsg);
       logLine("UPSTREAM ERROR", errMsg);
       logIO("OUTPUT (error)", { error: errMsg });
       res
@@ -223,6 +245,7 @@ export function pipeZenAsAnthropic(
           } catch {
             continue;
           }
+          if (parsed.usage) usageSeen = parsed.usage;
           const delta = parsed.choices?.[0]?.delta;
           if (!delta) continue;
 
@@ -245,6 +268,7 @@ export function pipeZenAsAnthropic(
               delta: { type: "text_delta", text: delta.content },
             });
             outputTokens += Math.ceil(delta.content.length / 4);
+            outputChars += delta.content.length;
           }
 
           if (delta.tool_calls) {
@@ -289,6 +313,7 @@ export function pipeZenAsAnthropic(
                   },
                 });
                 outputTokens += Math.ceil(tc.function.arguments.length / 4);
+                outputChars += tc.function.arguments.length;
               }
             }
           }
@@ -332,6 +357,7 @@ export function pipeZenAsAnthropic(
             return;
           }
           logIO("OUTPUT (empty)", { error: "Empty response" });
+          done("error", "Empty response");
           if (!res.headersSent) {
             res
               .status(502)
@@ -351,6 +377,7 @@ export function pipeZenAsAnthropic(
         const tools = Object.values(collectedTools);
         if (tools.length) out.tool_calls = tools;
         logIO(`OUTPUT (stream, ${ms}ms)`, out);
+        done("ok");
         res.end();
       });
     });
@@ -362,6 +389,7 @@ export function pipeZenAsAnthropic(
       }
       logLine("ERROR", e.message);
       logIO("OUTPUT (error)", { error: e.message });
+      done("error", e.message);
       if (!res.headersSent) {
         res
           .status(502)
@@ -380,6 +408,7 @@ export function pipeZenAsAnthropic(
       intentionalClose = false;
       logLine("TIMEOUT");
       logIO("OUTPUT (timeout)", { error: "Upstream timeout" });
+      done("error", "Upstream timeout");
       if (!res.headersSent) {
         res
           .status(504)

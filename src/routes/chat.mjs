@@ -36,7 +36,12 @@ router.post(["/v1/chat/completions", "/chat/completions"], (req, res) => {
   });
 
   const { body, options } = zenRequest(model, messages, stream, tools, tool_choice, sessionId);
-  pipeZenResponse(options, body, stream, res, { user, clientReq: req });
+  const inputTokens = (JSON.stringify(messages || []).length / 4) | 0;
+  pipeZenResponse(options, body, stream, res, {
+    user,
+    clientReq: req,
+    metrics: { endpoint: "chat", model, inputTokens },
+  });
 });
 
 export default router;

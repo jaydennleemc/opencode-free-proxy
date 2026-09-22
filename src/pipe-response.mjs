@@ -21,6 +21,7 @@ import {
   aggregateSseToCompletion,
   ensureOpenAIIds,
 } from "./pipe-openai.mjs";
+import { recordRequest } from "./metrics.mjs";
 
 // ── main pipe ──────────────────────────────────────────────────────────────
 
@@ -33,6 +34,7 @@ import {
  * @param {string} [ctx.user]   API-key user id (for session rotation)
  * @param {import("http").IncomingMessage} [ctx.clientReq]  client abort detection
  * @param {number} [ctx.retries]
+ * @param {object} [ctx.metrics] { endpoint, model, inputTokens } for metrics recording
  */
 export function pipeZenAsResponse(
   zenOpts,
@@ -43,11 +45,30 @@ export function pipeZenAsResponse(
   inputTokens,
   ctx = {},
 ) {
-  const { user, clientReq, retries = MAX_RETRIES } = ctx;
+  const { user, clientReq, retries = MAX_RETRIES, metrics: metricsCtx } = ctx;
+  const requestStart = Date.now();
   let requestModel = model;
   try {
     requestModel = JSON.parse(body).model || model;
   } catch {}
+
+  /** Current attempt's streaming state (re-created per attempt). */
+  let state;
+
+  /** Record the final outcome of this client request (called once, at terminal paths). */
+  function done(status, error = null, usage = null) {
+    recordRequest({
+      endpoint: metricsCtx?.endpoint || "responses",
+      model: requestModel || "unknown",
+      keyLabel: user || "unknown",
+      inputTokens: usage?.prompt_tokens ?? state.inputTokens,
+      outputTokens: usage?.completion_tokens ?? state.outputTokens,
+      estimated: !(usage || state.usageSeen),
+      status,
+      latencyMs: Date.now() - requestStart,
+      error,
+    });
+  }
 
   let currentOpts = zenOpts;
   let aborted = false;
@@ -74,7 +95,7 @@ export function pipeZenAsResponse(
     let skipEnd = false;
     let sentResponseCreated = false;
 
-    const state = streamingState(requestModel);
+    state = streamingState(requestModel);
     state.inputTokens = inputTokens;
 
     let streamLogLines = LOG_DETAIL ? "" : null;
@@ -82,6 +103,7 @@ export function pipeZenAsResponse(
     function failRateLimit(errMsg) {
       if (terminalHandled || res.headersSent) return;
       terminalHandled = true;
+      done("rate_limited", errMsg);
       logLine("RATE LIMITED, exhausted retries", errMsg);
       logIO("OUTPUT (rate_limit)", { error: errMsg });
       res
@@ -100,6 +122,7 @@ export function pipeZenAsResponse(
     function failUpstream(status, errMsg, type = "upstream_error") {
       if (terminalHandled || res.headersSent) return;
       terminalHandled = true;
+      done("error", errMsg);
       logLine("UPSTREAM ERROR", errMsg);
       logIO("OUTPUT (error)", { error: errMsg });
       res
@@ -270,6 +293,7 @@ export function pipeZenAsResponse(
             return;
           }
           logIO("OUTPUT (empty)", { error: "Empty response" });
+          done("error", "Empty response");
           if (!res.headersSent) {
             res
               .status(502)
@@ -298,6 +322,7 @@ export function pipeZenAsResponse(
             });
           }
           if (streamLogLines) logIO(`OUTPUT (stream, ${ms}ms)`, streamLogLines);
+          done("ok");
           res.end();
         } else {
           // Sync: aggregate full SSE into Response API JSON
@@ -306,6 +331,7 @@ export function pipeZenAsResponse(
           ensureOpenAIIds(aggregated, {}, requestModel);
           const respApi = openAIToResponse(aggregated, requestModel);
           logIO(`OUTPUT (sync, ${ms}ms)`, respApi);
+          done("ok", null, aggregated.usage || null);
           res.status(200).json(respApi);
         }
       });

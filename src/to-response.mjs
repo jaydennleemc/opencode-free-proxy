@@ -214,6 +214,7 @@ export function streamingState(model) {
     finishReason: null,
     inputTokens: 0,
     outputTokens: 0,
+    usageSeen: false,
   };
 }
 
@@ -253,16 +254,17 @@ export function buildFinalResponse(state) {
  * @param {(event: string, data: object) => void} emit  Event emitter
  */
 export function processStreamDelta(state, parsed, emit) {
-  const choice = parsed.choices?.[0];
-  if (!choice) return;
-  const delta = choice.delta || {};
-
-  // ── usage from final chunk ──
+  // ── usage from final chunk (may arrive without choices) ──
   if (parsed.usage) {
+    state.usageSeen = true;
     state.inputTokens = parsed.usage.prompt_tokens || state.inputTokens;
     state.outputTokens =
       parsed.usage.completion_tokens || state.outputTokens;
   }
+
+  const choice = parsed.choices?.[0];
+  if (!choice) return;
+  const delta = choice.delta || {};
 
   // ── text content ──
   if (typeof delta.content === "string" && delta.content) {

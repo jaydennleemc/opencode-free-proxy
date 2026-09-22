@@ -11,6 +11,8 @@ services:
     environment:
       PROXY_PORT: "6446"
       KEYS_FILE: /data/api-keys.json
+      METRICS_FILE: /data/metrics.db
+      METRICS: "${METRICS:-1}"
       NODE_ENV: production
       # Prefer Docker secrets / compose env file over plaintext in shell history
       ADMIN_API_KEY: "${ADMIN_API_KEY:-}"

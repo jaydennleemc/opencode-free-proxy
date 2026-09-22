@@ -15,7 +15,8 @@ FROM node:24-alpine AS run
 ENV NODE_ENV=production \
     NODE_OPTIONS=--use-openssl-ca \
     PROXY_PORT=6446 \
-    KEYS_FILE=/data/api-keys.json
+    KEYS_FILE=/data/api-keys.json \
+    METRICS_FILE=/data/metrics.db
 
 WORKDIR /app
 
