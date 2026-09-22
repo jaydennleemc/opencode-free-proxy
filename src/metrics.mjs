@@ -96,7 +96,7 @@ export function queryMetrics(range) {
     range, since, bucketMs,
     totals: { requests: 0, errors: 0, inputTokens: 0, outputTokens: 0, avgLatencyMs: 0 },
     series: zeroSeries(since, now, bucketMs),
-    byModel: [], byKey: [], recentErrors: [],
+    byModel: [], byKey: [], recentErrors: [], recent: [],
   };
 
   if (!METRICS_ENABLED) return empty;
@@ -161,6 +161,15 @@ export function queryMetrics(range) {
     )
     .all(since);
 
+  const recent = d
+    .prepare(
+      `SELECT ts, endpoint, model, key_label, input_tokens, output_tokens,
+              estimated, status, latency_ms
+       FROM requests WHERE ts >= ?
+       ORDER BY ts DESC LIMIT 20`,
+    )
+    .all(since);
+
   const series = zeroSeries(since, now, bucketMs);
   const byBucket = new Map(buckets.map((b) => [NUM(b.bucket), b]));
   for (const point of series) {
@@ -204,6 +213,17 @@ export function queryMetrics(range) {
       endpoint: r.endpoint,
       model: r.model,
       error: r.error,
+      latencyMs: NUM(r.latency_ms),
+    })),
+    recent: recent.map((r) => ({
+      ts: NUM(r.ts),
+      endpoint: r.endpoint,
+      model: r.model,
+      keyLabel: r.key_label,
+      inputTokens: NUM(r.input_tokens),
+      outputTokens: NUM(r.output_tokens),
+      estimated: !!r.estimated,
+      status: r.status,
       latencyMs: NUM(r.latency_ms),
     })),
   };

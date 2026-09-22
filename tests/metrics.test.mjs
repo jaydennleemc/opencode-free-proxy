@@ -74,6 +74,12 @@ test("queryMetrics aggregates errors, models, keys, and series buckets", () => {
   assert.equal(m.recentErrors.length, 1);
   assert.equal(m.recentErrors[0].error, "Rate limit exceeded");
   assert.equal(m.recentErrors[0].endpoint, "chat");
+
+  // recent = all statuses, newest first
+  assert.equal(m.recent.length, 3);
+  assert.equal(m.recent[0].keyLabel, "user-default");
+  assert.equal(m.recent[1].status, "rate_limited");
+  assert.equal(m.recent[2].inputTokens, 100);
 });
 
 test("queryMetrics excludes rows outside the range window", () => {

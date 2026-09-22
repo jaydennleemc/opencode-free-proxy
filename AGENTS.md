@@ -23,7 +23,8 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
   - `POST /v1/responses` (OpenAI Response API)
   - `POST /v1/messages` (Anthropic)
   - Auth works with either `Authorization: Bearer KEY` or `x-api-key: KEY` header.
-- **Metrics** — `GET /v1/metrics?range=1h|24h|7d|30d` (same auth) returns request/token aggregates recorded to a SQLite file via `node:sqlite` in `src/metrics.mjs`. Token counts use Zen's `usage` chunk when present, else chars/4 estimates (`estimated` flag). Recorded once per client request at terminal paths only.
+- **Metrics** — `GET /v1/metrics?range=1h|24h|7d|30d` (same auth) returns request/token aggregates recorded to a SQLite file via `node:sqlite` in `src/metrics.mjs`. Token counts use Zen's `usage` chunk when present, else chars/4 estimates (`estimated` flag). Recorded once per client request at terminal paths only. Includes a `recent` array of the last 20 requests.
+- **Key management** (admin only — the key named `admin`): `GET /v1/keys`, `POST /v1/keys { "name": "…" }` (generates an `oc-…` key), `DELETE /v1/keys/:name`. Protected keys: `admin` cannot be deleted.
 - **Response API** — translates `input`/`instructions` → chat messages, and pipes Zen SSE back as `response.created` → `response.content_part.delta` → `response.completed` events. Supports tools, tool_choice, temperature, top_p, max_output_tokens. `previous_response_id` not supported (Zen has no state).
 - **Streaming is real** — Zen SSE is piped through. Sync clients get SSE folded into one JSON body (`aggregateSseToCompletion`) because Zen 403s `stream: false`.
 - **Dependencies** — `express` only.
@@ -57,7 +58,9 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 | `src/to-response.mjs` | Response API ↔ OpenAI converter + streaming state |
 | `src/retry.mjs` | Backoff + 429 session rotation |
 | `src/metrics.mjs` | SQLite request-metrics recorder + aggregation |
-| `src/routes/*.mjs` | Route handlers (incl. `GET /v1/metrics`) |
+| `src/routes/metrics.mjs` | `GET /v1/metrics` — aggregated metrics |
+| `src/routes/keys.mjs` | `GET/POST/DELETE /v1/keys` — admin-only key management |
+| `src/routes/*.mjs` | Route handlers |
 | `dashboard/` | Next.js 16 + Tailwind v4 metrics dashboard (own package.json) |
 | `models.json` | Available models (free tier) |
 | `api-keys.json` | Auto-generated, **never commit** |

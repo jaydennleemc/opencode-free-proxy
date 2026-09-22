@@ -3,16 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 const PROXY_URL = process.env.PROXY_URL || "http://localhost:6446";
-const PROXY_API_KEY = process.env.PROXY_API_KEY;
 
 const VALID_RANGES = new Set(["1h", "24h", "7d", "30d"]);
 
 export async function GET(req: NextRequest) {
-  if (!PROXY_API_KEY) {
-    return NextResponse.json(
-      { error: "PROXY_API_KEY is not set on the dashboard server" },
-      { status: 500 },
-    );
+  const key = req.cookies.get("ocp_key")?.value;
+  if (!key) {
+    return NextResponse.json({ error: "not logged in" }, { status: 401 });
   }
 
   const range = req.nextUrl.searchParams.get("range") || "24h";
@@ -23,7 +20,7 @@ export async function GET(req: NextRequest) {
   let upstream: Response;
   try {
     upstream = await fetch(`${PROXY_URL}/v1/metrics?range=${range}`, {
-      headers: { Authorization: `Bearer ${PROXY_API_KEY}` },
+      headers: { Authorization: `Bearer ${key}` },
       cache: "no-store",
     });
   } catch {
@@ -34,10 +31,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (upstream.status === 401) {
-    return NextResponse.json(
-      { error: "proxy rejected PROXY_API_KEY (401)" },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: "session expired" }, { status: 401 });
   }
   if (!upstream.ok) {
     return NextResponse.json(

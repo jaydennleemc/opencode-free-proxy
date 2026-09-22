@@ -38,6 +38,18 @@ export interface ErrorRow {
   latencyMs: number;
 }
 
+export interface RecentRow {
+  ts: number;
+  endpoint: string;
+  model: string;
+  keyLabel: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimated: boolean;
+  status: string;
+  latencyMs: number;
+}
+
 export interface MetricsResponse {
   range: string;
   since: number;
@@ -47,6 +59,12 @@ export interface MetricsResponse {
   byModel: ModelRow[];
   byKey: KeyRow[];
   recentErrors: ErrorRow[];
+  recent: RecentRow[];
+}
+
+export interface KeyEntry {
+  name: string;
+  key: string;
 }
 
 export const RANGES = ["1h", "24h", "7d", "30d"] as const;

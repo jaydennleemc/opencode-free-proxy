@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  Area,
-  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
@@ -25,18 +25,8 @@ export default function TokensChart({
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id="gIn" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#2dd4bf" stopOpacity={0.35} />
-            <stop offset="100%" stopColor="#2dd4bf" stopOpacity={0} />
-          </linearGradient>
-          <linearGradient id="gOut" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.35} />
-            <stop offset="100%" stopColor="#a78bfa" stopOpacity={0} />
-          </linearGradient>
-        </defs>
+    <ResponsiveContainer width="100%" height={240}>
+      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
         <CartesianGrid stroke="#1e2632" strokeDasharray="3 3" vertical={false} />
         <XAxis
           dataKey="label"
@@ -66,23 +56,15 @@ export default function TokensChart({
             name === "inputTokens" ? "input" : "output",
           ]}
         />
-        <Area
-          type="monotone"
-          dataKey="inputTokens"
-          stroke="#2dd4bf"
-          strokeWidth={1.5}
-          fill="url(#gIn)"
-          name="inputTokens"
-        />
-        <Area
-          type="monotone"
+        <Bar dataKey="inputTokens" stackId="t" fill="#2dd4bf" name="inputTokens" />
+        <Bar
           dataKey="outputTokens"
-          stroke="#a78bfa"
-          strokeWidth={1.5}
-          fill="url(#gOut)"
+          stackId="t"
+          fill="#a78bfa"
           name="outputTokens"
+          radius={[3, 3, 0, 0]}
         />
-      </AreaChart>
+      </BarChart>
     </ResponsiveContainer>
   );
 }

@@ -4,17 +4,29 @@ import useSWR from "swr";
 import { useState } from "react";
 import type { MetricsResponse, Range } from "@/lib/types";
 import { RANGES } from "@/lib/types";
-import { compact, latency, clock, dateClock } from "@/lib/format";
+import { compact, latency, clock } from "@/lib/format";
 import StatCard from "./stat-card";
 import TokensChart from "./tokens-chart";
 import ModelChart from "./model-chart";
+import RecentTable from "./recent-table";
+import KeysPanel from "./keys-panel";
 
 const fetcher = async (url: string): Promise<MetricsResponse> => {
   const res = await fetch(url);
+  if (res.status === 401) {
+    // session gone — back to login
+    window.location.href = "/login";
+    throw new Error("not logged in");
+  }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
   return body;
 };
+
+async function logout() {
+  await fetch("/api/auth/logout", { method: "POST" });
+  window.location.href = "/login";
+}
 
 export default function Dashboard() {
   const [range, setRange] = useState<Range>("24h");
@@ -25,7 +37,6 @@ export default function Dashboard() {
   );
 
   const totals = data?.totals;
-  const totalTokens = (totals?.inputTokens ?? 0) + (totals?.outputTokens ?? 0);
   const errorRate =
     totals && totals.requests > 0
       ? ((totals.errors / totals.requests) * 100).toFixed(1) + "%"
@@ -69,6 +80,12 @@ export default function Dashboard() {
               </button>
             ))}
           </nav>
+          <button
+            onClick={logout}
+            className="tnum rounded-md border border-hairline px-3 py-1.5 text-xs text-dim transition-colors hover:text-ink"
+          >
+            log out
+          </button>
         </div>
       </header>
 
@@ -94,11 +111,16 @@ export default function Dashboard() {
       ) : (
         <>
           {/* ── KPI row ── */}
-          <section className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <section className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <StatCard
-              label="tokens"
-              value={compact(totalTokens)}
-              sub={`${compact(totals!.inputTokens)} in · ${compact(totals!.outputTokens)} out`}
+              label="input tokens"
+              value={compact(totals!.inputTokens)}
+              accent="teal"
+            />
+            <StatCard
+              label="output tokens"
+              value={compact(totals!.outputTokens)}
+              accent="violet"
             />
             <StatCard label="requests" value={compact(totals!.requests)} />
             <StatCard
@@ -130,6 +152,14 @@ export default function Dashboard() {
               </div>
             </div>
             <TokensChart series={data.series} bucketMs={data.bucketMs} />
+          </section>
+
+          {/* ── recent requests ── */}
+          <section className="mt-4 rounded-md border border-hairline bg-panel p-4">
+            <h2 className="mb-2 text-[11px] uppercase tracking-widest text-dim">
+              recent requests
+            </h2>
+            <RecentTable rows={data.recent} />
           </section>
 
           {/* ── model + key breakdowns ── */}
@@ -176,32 +206,8 @@ export default function Dashboard() {
             </div>
           </section>
 
-          {/* ── recent errors ── */}
-          {data.recentErrors.length > 0 && (
-            <section className="mt-4 rounded-md border border-hairline bg-panel p-4">
-              <h2 className="mb-2 text-[11px] uppercase tracking-widest text-dim">
-                recent errors
-              </h2>
-              <ul className="divide-y divide-hairline/50">
-                {data.recentErrors.map((e, i) => (
-                  <li
-                    key={`${e.ts}-${i}`}
-                    className="tnum flex flex-wrap items-baseline gap-x-3 py-2 text-xs"
-                  >
-                    <span className="text-dim">{dateClock(e.ts)}</span>
-                    <span className="rounded-sm bg-hairline/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-dim">
-                      {e.endpoint}
-                    </span>
-                    <span className="text-violet">{e.model}</span>
-                    <span className="grow truncate text-red">
-                      {e.error || "unknown error"}
-                    </span>
-                    <span className="text-dim">{latency(e.latencyMs)}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+          {/* ── key management (admin only) ── */}
+          <KeysPanel />
         </>
       )}
     </main>

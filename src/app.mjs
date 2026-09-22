@@ -4,6 +4,7 @@ import chatRouter from "./routes/chat.mjs";
 import messagesRouter from "./routes/messages.mjs";
 import responsesRouter from "./routes/responses.mjs";
 import metricsRouter from "./routes/metrics.mjs";
+import keysRouter from "./routes/keys.mjs";
 import healthRouter from "./routes/health.mjs";
 import { logLine } from "./logger.mjs";
 
@@ -15,6 +16,7 @@ export function createApp() {
   app.use(messagesRouter);
   app.use(responsesRouter);
   app.use(metricsRouter);
+  app.use(keysRouter);
   app.use(healthRouter);
 
   // 404 fallback — return JSON for unknown routes
