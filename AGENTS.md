@@ -61,8 +61,9 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 | `dashboard/` | Next.js 16 + Tailwind v4 metrics dashboard (own package.json) |
 | `models.json` | Available models (free tier) |
 | `api-keys.json` | Auto-generated, **never commit** |
-| `Dockerfile` | Multi-stage, non-root |
-| `docker-compose.yaml` | Production: read-only rootfs, cap_drop ALL |
+| `Dockerfile` | Proxy-only image: multi-stage, non-root |
+| `Dockerfile.allinone` | Proxy + dashboard in one container (`scripts/start.mjs` launcher) |
+| `docker-compose.yaml` | Two services (proxy + dashboard): read-only rootfs, cap_drop ALL |
 
 ## Style
 

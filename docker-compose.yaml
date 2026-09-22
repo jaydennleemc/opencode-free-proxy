@@ -41,5 +41,34 @@ services:
           memory: 128M
     restart: unless-stopped
 
+  dashboard:
+    build: ./dashboard
+    image: opencode-free-proxy-dashboard:latest
+    container_name: opencode-free-proxy-dashboard
+    depends_on:
+      - proxy
+    ports:
+      - "${DASHBOARD_BIND:-127.0.0.1}:${DASHBOARD_PORT:-3000}:3000"
+    environment:
+      # Internal compose DNS — the dashboard reaches the proxy without
+      # the proxy port being published to the host at all
+      PROXY_URL: "http://proxy:6446"
+      # Must match a key from the proxy's api-keys.json (in the proxy-data volume)
+      PROXY_API_KEY: "${PROXY_API_KEY:-${ADMIN_API_KEY:-}}"
+    # ── Hardening ───────────────────────────────────────────
+    read_only: true
+    tmpfs:
+      - /tmp:nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+    restart: unless-stopped
+
 volumes:
   proxy-data:

@@ -84,6 +84,7 @@ curl http://localhost:6446/v1/messages \
 | Method | Path | What |
 |--------|------|------|
 | `GET` | `/v1/models` | List models |
+| `GET` | `/v1/metrics?range=1h\|24h\|7d\|30d` | Aggregated request/token metrics |
 | `GET` | `/health` | Health + opencode status |
 
 ### Auth
@@ -92,13 +93,28 @@ Both `Authorization: Bearer KEY` and `x-api-key: KEY` work on all endpoints.
 
 ## Docker
 
+### All-in-one (proxy + metrics dashboard, single container)
+
+```bash
+docker build -f Dockerfile.allinone -t opencode-proxy .
+docker run -d --name opencode-proxy -p 3000:3000 -p 6446:6446 -v proxy-data:/data opencode-proxy
+```
+
+- Dashboard: `http://localhost:3000` (the only port you need for the web UI)
+- API: `http://localhost:6446/v1` — publish `6446` only if your API clients run outside the container
+- API keys and the metrics DB persist in the `proxy-data` volume; the dashboard picks up a key automatically
+
+### Proxy only (compose)
+
 ```bash
 docker compose up -d --build
 # API keys persist in the proxy-data volume:
 docker exec opencode-free-proxy cat /data/api-keys.json
 ```
 
-API keys persist in the `proxy-data` volume.
+API keys persist in the `proxy-data` volume. Compose also includes an optional
+`dashboard` service (published on `127.0.0.1:3000`, set `PROXY_API_KEY` in the
+environment) if you prefer two containers.
 
 ## Use with tools
 
