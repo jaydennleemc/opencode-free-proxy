@@ -23,6 +23,7 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
   - `POST /v1/responses` (OpenAI Response API)
   - `POST /v1/messages` (Anthropic)
   - Auth works with either `Authorization: Bearer KEY` or `x-api-key: KEY` header.
+- **Metrics** — `GET /v1/metrics?range=1h|24h|7d|30d` (same auth) returns request/token aggregates recorded to a SQLite file via `node:sqlite` in `src/metrics.mjs`. Token counts use Zen's `usage` chunk when present, else chars/4 estimates (`estimated` flag). Recorded once per client request at terminal paths only.
 - **Response API** — translates `input`/`instructions` → chat messages, and pipes Zen SSE back as `response.created` → `response.content_part.delta` → `response.completed` events. Supports tools, tool_choice, temperature, top_p, max_output_tokens. `previous_response_id` not supported (Zen has no state).
 - **Streaming is real** — Zen SSE is piped through. Sync clients get SSE folded into one JSON body (`aggregateSseToCompletion`) because Zen 403s `stream: false`.
 - **Dependencies** — `express` only.
@@ -37,6 +38,8 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 | `RETRY_BASE_MS` / `RETRY_MAX_MS` | `1000` / `30000` | Backoff base / cap (±20% jitter) |
 | `LOG_DETAIL` | `1` | `0` disables full I/O dumps |
 | `LOG_MAX_CHARS` | `0` | Truncate logged payloads (0 = unlimited) |
+| `METRICS` | `1` | `0` disables request metrics recording |
+| `METRICS_FILE` | `./metrics.db` | SQLite metrics DB path (gitignored) |
 | `NO_COLOR` / `FORCE_COLOR` | — | ANSI color control |
 
 ## Files
@@ -53,7 +56,9 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 | `src/to-anthropic.mjs` | OpenAI → Anthropic converter |
 | `src/to-response.mjs` | Response API ↔ OpenAI converter + streaming state |
 | `src/retry.mjs` | Backoff + 429 session rotation |
-| `src/routes/*.mjs` | Route handlers |
+| `src/metrics.mjs` | SQLite request-metrics recorder + aggregation |
+| `src/routes/*.mjs` | Route handlers (incl. `GET /v1/metrics`) |
+| `dashboard/` | Next.js 16 + Tailwind v4 metrics dashboard (own package.json) |
 | `models.json` | Available models (free tier) |
 | `api-keys.json` | Auto-generated, **never commit** |
 | `Dockerfile` | Multi-stage, non-root |

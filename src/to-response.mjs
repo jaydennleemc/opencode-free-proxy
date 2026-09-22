@@ -333,6 +333,21 @@ export function processStreamDelta(state, parsed, emit) {
           type: "response.function_call_arguments.start",
           output_index: state.outputItems.length - 1,
         });
+        // Initial delta right after start (empty when args arrive on later chunks)
+        emit("response.function_call_arguments.delta", {
+          type: "response.function_call_arguments.delta",
+          output_index: state.outputItems.length - 1,
+          delta: {
+            type: "function_call_arguments.delta",
+            arguments: tc.function?.arguments || "",
+          },
+        });
+        if (tc.function?.arguments) {
+          const target = state.outputItems[state.outputItems.length - 1];
+          if (target.type === "function_call")
+            target.arguments += tc.function.arguments;
+          state.outputTokens += Math.ceil(tc.function.arguments.length / 4);
+        }
       }
 
       const outIdx = state.fcOutputIndex.get(idx) ?? state.outputItems.length - 1;
@@ -345,7 +360,7 @@ export function processStreamDelta(state, parsed, emit) {
         }
       }
 
-      if (tc.function?.arguments) {
+      if (tc.function?.arguments && !isNew) {
         const target = state.outputItems[outIdx];
         if (target.type === "function_call") {
           target.arguments += tc.function.arguments;

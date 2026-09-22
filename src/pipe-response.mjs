@@ -281,7 +281,9 @@ export function pipeZenAsResponse(
       zenRes.on("end", () => {
         if (skipEnd || terminalHandled) return;
 
-        if (!headersSent) {
+        // Sync mode never sends SSE headers; its data lives in `chunks`.
+        const gotData = stream ? headersSent : chunks.length > 0;
+        if (!gotData) {
           if (status === 429) {
             if (handleRetryable("rate_limit", "Rate limit exceeded")) return;
             failRateLimit("Rate limit exceeded");

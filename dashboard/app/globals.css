@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --color-base: #0b0e13;
+  --color-panel: #12161d;
+  --color-hairline: #1e2632;
+  --color-ink: #d7dee8;
+  --color-dim: #6b7686;
+  --color-teal: #2dd4bf;
+  --color-violet: #a78bfa;
+  --color-red: #f87171;
+  --color-amber: #fbbf24;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jbmono), ui-monospace, monospace;
+}
+
+body {
+  background: var(--color-base);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Tabular figures for every number on the board */
+.tnum {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
