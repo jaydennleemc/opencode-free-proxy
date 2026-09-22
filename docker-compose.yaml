@@ -1,16 +1,22 @@
 # Production
-# Usage: docker compose -f docker-compose.yaml up -d --build
+# Usage: docker compose up -d --build
+# One container: proxy API on 6446, metrics dashboard on 3000.
 services:
   proxy:
     build: .
     image: opencode-free-proxy:latest
     container_name: opencode-free-proxy
     ports:
-      # Prefer loopback if only local clients; use 6446:6446 for LAN exposure
+      # API — prefer loopback if only local clients; use 6446:6446 for LAN
       - "${PROXY_BIND:-127.0.0.1}:${PROXY_PORT:-6446}:6446"
+      # Metrics dashboard web UI
+      - "${DASHBOARD_BIND:-127.0.0.1}:${DASHBOARD_PORT:-3000}:3000"
     environment:
       PROXY_PORT: "6446"
+      DASHBOARD_PORT: "3000"
       KEYS_FILE: /data/api-keys.json
+      METRICS_FILE: /data/metrics.db
+      METRICS: "${METRICS:-1}"
       NODE_ENV: production
       # Prefer Docker secrets / compose env file over plaintext in shell history
       ADMIN_API_KEY: "${ADMIN_API_KEY:-}"
@@ -33,7 +39,7 @@ services:
       resources:
         limits:
           cpus: "2.0"
-          memory: 256M
+          memory: 512M
         reservations:
           cpus: "0.1"
           memory: 128M

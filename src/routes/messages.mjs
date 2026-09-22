@@ -20,6 +20,7 @@ import {
   withFreshSession,
   withFreshRequestId,
 } from "../retry.mjs";
+import { recordRequest } from "../metrics.mjs";
 
 const router = Router();
 
@@ -61,6 +62,21 @@ router.post("/v1/messages", async (req, res) => {
   const { messages, tools } = anthropicToOpenAI(req.body);
   const inputTokens = (JSON.stringify(messages).length / 4) | 0;
 
+  /** Record the final outcome of this request (sync path; stream path records inside the pipe). */
+  const t0 = Date.now();
+  const done = (status, error = null, usage = null, estOutputTokens = 0) =>
+    recordRequest({
+      endpoint: "messages",
+      model,
+      keyLabel: user,
+      inputTokens: usage?.prompt_tokens ?? inputTokens,
+      outputTokens: usage?.completion_tokens ?? estOutputTokens,
+      estimated: !usage,
+      status,
+      latencyMs: Date.now() - t0,
+      error,
+    });
+
   logLine(
     user,
     model,
@@ -90,6 +106,7 @@ router.post("/v1/messages", async (req, res) => {
     pipeZenAsAnthropic(options, body, model, res, inputTokens, {
       user,
       clientReq: req,
+      metrics: { endpoint: "messages", model, inputTokens },
     });
     return;
   }
@@ -167,6 +184,7 @@ router.post("/v1/messages", async (req, res) => {
 
     if (lastTransientErr) {
       logIO(`OUTPUT (error, ${ms}ms)`, { error: lastTransientErr.message });
+      done("error", lastTransientErr.message);
       return res.status(502).json({
         type: "error",
         error: { type: "upstream_error", message: lastTransientErr.message },
@@ -176,6 +194,7 @@ router.post("/v1/messages", async (req, res) => {
     if (isRateLimitResponse(zenResp.status, zenResp.data, zenResp.raw)) {
       const errMsg = zenResp.data?.error?.message || "Rate limit exceeded";
       logIO(`OUTPUT (rate_limit, ${ms}ms)`, { error: errMsg });
+      done("rate_limited", errMsg);
       return res.status(429).json({
         type: "error",
         error: {
@@ -188,6 +207,7 @@ router.post("/v1/messages", async (req, res) => {
     const errInfo = parseErrorPayload(zenResp.data, zenResp.raw);
     if (errInfo) {
       logIO(`OUTPUT (error, ${ms}ms)`, { error: errInfo.message });
+      done("error", errInfo.message);
       let status = zenResp.status >= 400 ? zenResp.status : 502;
       return res.status(status).json({
         type: "error",
@@ -200,6 +220,7 @@ router.post("/v1/messages", async (req, res) => {
 
     if (isTransientHttpStatus(zenResp.status)) {
       logIO(`OUTPUT (error, ${ms}ms)`, { error: `HTTP ${zenResp.status}` });
+      done("error", `Upstream HTTP ${zenResp.status}`);
       return res.status(zenResp.status).json({
         type: "error",
         error: {
@@ -214,6 +235,7 @@ router.post("/v1/messages", async (req, res) => {
     }
     if (!zenResp.data?.choices) {
       logIO(`OUTPUT (invalid, ${ms}ms)`, { raw: zenResp.raw });
+      done("error", "Invalid upstream response");
       return res.status(502).json({
         type: "error",
         error: { type: "upstream_error", message: "Invalid upstream response" },
@@ -221,10 +243,13 @@ router.post("/v1/messages", async (req, res) => {
     }
     const antResp = openAIToAnthropic(zenResp.data, model, inputTokens);
     logIO(`OUTPUT (sync, ${ms}ms)`, antResp);
+    done("ok", null, zenResp.data.usage || null,
+      antResp.usage?.output_tokens || 0);
     res.json(antResp);
   } catch (e) {
     logLine("ZEN", "ERROR", e.message);
     logIO("OUTPUT (error)", { error: e.message });
+    done("error", e.message);
     res
       .status(502)
       .json({

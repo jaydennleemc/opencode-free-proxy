@@ -1,6 +1,6 @@
 # opencode-free-proxy
 
-Modular Node.js Express proxy that translates OpenAI/Anthropic API calls onto `opencode.ai/zen/v1` with the official-client fingerprint the free tier requires.
+Modular Node.js Express proxy that translates OpenAI/Anthropic/Response API calls onto `opencode.ai/zen/v1` with the official-client fingerprint the free tier requires.
 
 ## Quick start
 
@@ -18,10 +18,14 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 - **Tests** — `npm test` runs Node built-in test runner in `tests/`.
 - **Architecture (v0.2+)** — direct `opencode.ai/zen/v1/chat/completions`. The 2026-09-16 `FreeTierError` is HTTP fingerprinting, not encrypted inference. Required: `User-Agent: opencode/<≥1.17>`, canonical `x-opencode-session`/`x-opencode-request`, tools named `{bash, glob, grep, read}`, `stream: true`.
 - **Cursor** — Custom Models send `read_file` / `codebase_search` / etc. and no `bash`/`read`. Forward those tools and inject the missing fingerprint names. Do not drop client tools. Do not spawn `opencode serve` and override `system` (that 403s as a custom agent).
-- **Two API formats** served on the same server:
+- **Three API formats** served on the same server:
   - `POST /v1/chat/completions` (OpenAI)
+  - `POST /v1/responses` (OpenAI Response API)
   - `POST /v1/messages` (Anthropic)
   - Auth works with either `Authorization: Bearer KEY` or `x-api-key: KEY` header.
+- **Metrics** — `GET /v1/metrics?range=1h|24h|7d|30d` (same auth) returns request/token aggregates recorded to a SQLite file via `node:sqlite` in `src/metrics.mjs`. Token counts use Zen's `usage` chunk when present, else chars/4 estimates (`estimated` flag). Recorded once per client request at terminal paths only. Includes a `recent` array of the last 20 requests.
+- **Key management** (admin only — the key named `admin`): `GET /v1/keys`, `POST /v1/keys { "name": "…" }` (generates an `oc-…` key), `DELETE /v1/keys/:name`. Protected keys: `admin` cannot be deleted.
+- **Response API** — translates `input`/`instructions` → chat messages, and pipes Zen SSE back as `response.created` → `response.content_part.delta` → `response.completed` events. Supports tools, tool_choice, temperature, top_p, max_output_tokens. `previous_response_id` not supported (Zen has no state).
 - **Streaming is real** — Zen SSE is piped through. Sync clients get SSE folded into one JSON body (`aggregateSseToCompletion`) because Zen 403s `stream: false`.
 - **Dependencies** — `express` only.
 
@@ -35,6 +39,8 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 | `RETRY_BASE_MS` / `RETRY_MAX_MS` | `1000` / `30000` | Backoff base / cap (±20% jitter) |
 | `LOG_DETAIL` | `1` | `0` disables full I/O dumps |
 | `LOG_MAX_CHARS` | `0` | Truncate logged payloads (0 = unlimited) |
+| `METRICS` | `1` | `0` disables request metrics recording |
+| `METRICS_FILE` | `./metrics.db` | SQLite metrics DB path (gitignored) |
 | `NO_COLOR` / `FORCE_COLOR` | — | ANSI color control |
 
 ## Files
@@ -45,19 +51,25 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 | `src/client.mjs` | Zen request builder + fingerprint tools |
 | `src/session.mjs` | Per-user `ses_` id, rotated on 429 |
 | `src/pipe-openai.mjs` | Zen SSE → OpenAI SSE / sync JSON |
+| `src/pipe-response.mjs` | Zen SSE → Response API SSE / sync JSON |
 | `src/pipe-anthropic.mjs` | Zen SSE → Anthropic SSE |
 | `src/to-openai.mjs` | Anthropic → OpenAI message converter |
 | `src/to-anthropic.mjs` | OpenAI → Anthropic converter |
+| `src/to-response.mjs` | Response API ↔ OpenAI converter + streaming state |
 | `src/retry.mjs` | Backoff + 429 session rotation |
+| `src/metrics.mjs` | SQLite request-metrics recorder + aggregation |
+| `src/routes/metrics.mjs` | `GET /v1/metrics` — aggregated metrics |
+| `src/routes/keys.mjs` | `GET/POST/DELETE /v1/keys` — admin-only key management |
 | `src/routes/*.mjs` | Route handlers |
+| `dashboard/` | Next.js 16 + Tailwind v4 metrics dashboard (own package.json) |
 | `models.json` | Available models (free tier) |
 | `api-keys.json` | Auto-generated, **never commit** |
-| `Dockerfile` | Multi-stage, non-root |
-| `docker-compose.yaml` | Production: read-only rootfs, cap_drop ALL |
+| `Dockerfile` | All-in-one: proxy + dashboard in one container (`scripts/start.mjs` launcher), multi-stage, non-root |
+| `docker-compose.yaml` | Single service, read-only rootfs, cap_drop ALL |
 
 ## Style
 
 - No TypeScript, no lint config — just raw JS with Express.
 - `console.log` for logging (no structured logger).
-- The main complexity is the Zen pipe in `pipe-openai.mjs` / `pipe-anthropic.mjs` and the free-tier fingerprint in `src/client.mjs` — preserve behavior when touching.
+- The main complexity is the Zen pipe in `pipe-openai.mjs` / `pipe-anthropic.mjs` / `pipe-response.mjs` and the free-tier fingerprint in `src/client.mjs` — preserve behavior when touching.
 - If Zen starts 403ing again, bisect the four fingerprint axes before assuming the gate moved into a closed layer.

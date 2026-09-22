@@ -16,7 +16,43 @@ export function loadKeys() {
     });
     fs.writeFileSync(KEYS_FILE, JSON.stringify(apiKeys, null, 2));
     logLine("Generated new API keys →", KEYS_FILE);
+    return;
   }
+  // Env vars override the persisted file — an explicitly set key must win,
+  // otherwise a reused volume silently ignores the operator's key.
+  let changed = false;
+  for (const [name, envVar] of [["admin", "ADMIN_API_KEY"], ["user-default", "USER_DEFAULT_API_KEY"]]) {
+    const v = process.env[envVar];
+    if (v && apiKeys[name] !== v) {
+      apiKeys[name] = v;
+      changed = true;
+    }
+  }
+  if (changed) {
+    fs.writeFileSync(KEYS_FILE, JSON.stringify(apiKeys, null, 2));
+    logLine("Applied API key overrides from env →", KEYS_FILE);
+  }
+}
+
+function persist() {
+  fs.writeFileSync(KEYS_FILE, JSON.stringify(apiKeys, null, 2));
+}
+
+/** Create a new key under `name`. Returns the key, or null if name is taken/invalid. */
+export function addKey(name) {
+  if (typeof name !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(name)) return null;
+  if (apiKeys[name]) return null;
+  apiKeys[name] = "oc-" + crypto.randomBytes(20).toString("hex");
+  persist();
+  return apiKeys[name];
+}
+
+/** Delete a key by name. "admin" is protected against lockout. */
+export function deleteKey(name) {
+  if (!apiKeys[name] || name === "admin") return false;
+  delete apiKeys[name];
+  persist();
+  return true;
 }
 
 export function auth(req) {

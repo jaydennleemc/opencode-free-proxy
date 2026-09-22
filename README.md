@@ -1,8 +1,8 @@
 # opencode-free-proxy
 
-Free AI models from [OpenCode](https://opencode.ai) exposed as standard OpenAI and Anthropic APIs.
+Free AI models from [OpenCode](https://opencode.ai) exposed as standard OpenAI, Anthropic, and Response APIs.
 
-One server — works with any tool that speaks OpenAI or Anthropic format: Cursor, Continue, Cline, Claude Code, aider, opencode CLI, raw `curl`, whatever.
+One server — works with any tool that speaks OpenAI, Anthropic, or Response API format: Cursor, Continue, Cline, Claude Code, aider, opencode CLI, raw `curl`, whatever.
 
 ## 30-second setup
 
@@ -48,6 +48,22 @@ curl http://localhost:6446/v1/chat/completions \
   }'
 ```
 
+### Response API format — `POST /v1/responses`
+
+```bash
+curl http://localhost:6446/v1/responses \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mimo-v2.5-free",
+    "instructions": "You are helpful.",
+    "input": "Hello",
+    "stream": true
+  }'
+```
+
+Supports the full OpenAI Response API input/output shape: `instructions`, `input` (string or array), `tools`, `tool_choice`, `max_output_tokens`, `temperature`, `top_p`. Streaming emits the standard `response.created` → `response.content_part.delta` → `response.completed` event sequence.
+
 ### Anthropic format — `POST /v1/messages`
 
 ```bash
@@ -68,6 +84,7 @@ curl http://localhost:6446/v1/messages \
 | Method | Path | What |
 |--------|------|------|
 | `GET` | `/v1/models` | List models |
+| `GET` | `/v1/metrics?range=1h\|24h\|7d\|30d` | Aggregated request/token metrics |
 | `GET` | `/health` | Health + opencode status |
 
 ### Auth
@@ -76,13 +93,25 @@ Both `Authorization: Bearer KEY` and `x-api-key: KEY` work on all endpoints.
 
 ## Docker
 
+One container runs both the proxy (API on `6446`) and the metrics dashboard
+(web UI on `3000`):
+
+```bash
+docker build -t opencode-proxy .
+docker run -d --name opencode-proxy -p 3000:3000 -p 6446:6446 -v proxy-data:/data opencode-proxy
+```
+
+- Dashboard: `http://localhost:3000` (the only port you need for the web UI)
+- API: `http://localhost:6446/v1` — publish `6446` only if your API clients run outside the container
+- API keys and the metrics DB persist in the `proxy-data` volume; the dashboard picks up a key automatically
+
+Or with compose:
+
 ```bash
 docker compose up -d --build
 # API keys persist in the proxy-data volume:
 docker exec opencode-free-proxy cat /data/api-keys.json
 ```
-
-API keys persist in the `proxy-data` volume.
 
 ## Use with tools
 
