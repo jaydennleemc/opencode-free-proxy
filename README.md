@@ -1,8 +1,8 @@
 # opencode-free-proxy
 
-Free AI models from [OpenCode](https://opencode.ai) exposed as standard OpenAI and Anthropic APIs.
+Free AI models from [OpenCode](https://opencode.ai) exposed as standard OpenAI, Anthropic, and Response APIs.
 
-One server — works with any tool that speaks OpenAI or Anthropic format: Cursor, Continue, Cline, Claude Code, aider, opencode CLI, raw `curl`, whatever.
+One server — works with any tool that speaks OpenAI, Anthropic, or Response API format: Cursor, Continue, Cline, Claude Code, aider, opencode CLI, raw `curl`, whatever.
 
 ## 30-second setup
 
@@ -47,6 +47,22 @@ curl http://localhost:6446/v1/chat/completions \
     "stream": true
   }'
 ```
+
+### Response API format — `POST /v1/responses`
+
+```bash
+curl http://localhost:6446/v1/responses \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mimo-v2.5-free",
+    "instructions": "You are helpful.",
+    "input": "Hello",
+    "stream": true
+  }'
+```
+
+Supports the full OpenAI Response API input/output shape: `instructions`, `input` (string or array), `tools`, `tool_choice`, `max_output_tokens`, `temperature`, `top_p`. Streaming emits the standard `response.created` → `response.content_part.delta` → `response.completed` event sequence.
 
 ### Anthropic format — `POST /v1/messages`
 

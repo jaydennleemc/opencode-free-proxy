@@ -15,6 +15,7 @@ app.listen(PORT, "0.0.0.0", (err) => {
   logLine(`OpenCode Free Proxy v${PROXY_VERSION} on http://0.0.0.0:${PORT}`);
   logLine("  OpenAI:    POST /v1/chat/completions");
   logLine("  Anthropic: POST /v1/messages");
+  logLine("  Response:  POST /v1/responses");
   logLine("  Models:    GET  /v1/models");
   logLine("  Health:    GET  /health");
   logLine("  Models:", MODELS.join(", "));

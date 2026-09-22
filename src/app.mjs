@@ -2,6 +2,7 @@ import express from "express";
 import modelsRouter from "./routes/models.mjs";
 import chatRouter from "./routes/chat.mjs";
 import messagesRouter from "./routes/messages.mjs";
+import responsesRouter from "./routes/responses.mjs";
 import healthRouter from "./routes/health.mjs";
 import { logLine } from "./logger.mjs";
 
@@ -11,6 +12,7 @@ export function createApp() {
   app.use(modelsRouter);
   app.use(chatRouter);
   app.use(messagesRouter);
+  app.use(responsesRouter);
   app.use(healthRouter);
 
   // 404 fallback — return JSON for unknown routes
@@ -33,7 +35,7 @@ export function createApp() {
     const message = err.message || "Internal server error";
     const type = err.type || "server_error";
 
-    if (req.path === "/v1/messages") {
+    if (req.path === "/v1/messages" || req.path === "/v1/responses") {
       res.status(status).json({ type: "error", error: { type, message } });
     } else {
       res.status(status).json({ error: { message, type, code: err.code } });
