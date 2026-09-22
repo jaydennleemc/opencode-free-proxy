@@ -1,40 +1,54 @@
 # syntax=docker/dockerfile:1
-# ── Build stage ──────────────────────────────────────────────
-FROM node:24-alpine AS build
-WORKDIR /app
+# All-in-one image: proxy (API on :6446) + dashboard (web UI on :3000)
+# in a single container, started by scripts/start.mjs.
+# Only port 3000 needs publishing for the dashboard; publish 6446 as well
+# if API clients run outside the container.
+#
+#   docker build -t opencode-proxy .
+#   docker run --rm -p 3000:3000 -p 6446:6446 -v proxy-data:/data opencode-proxy
 
-# Reproducible install from lockfile (never floating npm install)
+# ── Dashboard build stage ────────────────────────────────────
+FROM node:24-alpine AS dashboard-build
+WORKDIR /app
+COPY dashboard/package.json dashboard/package-lock.json ./
+RUN npm ci --no-audit --no-fund && npm cache clean --force
+COPY dashboard ./
+RUN npm run build
+
+# ── Proxy deps stage ─────────────────────────────────────────
+FROM node:24-alpine AS proxy-deps
+WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund \
-  && npm cache clean --force
+RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 
 # ── Run stage ────────────────────────────────────────────────
 FROM node:24-alpine AS run
 
-# Minimal runtime env
 ENV NODE_ENV=production \
     NODE_OPTIONS=--use-openssl-ca \
     PROXY_PORT=6446 \
+    DASHBOARD_PORT=3000 \
     KEYS_FILE=/data/api-keys.json \
     METRICS_FILE=/data/metrics.db
 
 WORKDIR /app
 
-# Drop privileges on copy — no root-owned app tree, no chown RUN
-COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=proxy-deps --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package.json models.json ./
 COPY --chown=node:node src ./src
+COPY --chown=node:node scripts ./scripts
+COPY --from=dashboard-build --chown=node:node /app/.next/standalone ./dashboard-server
+COPY --from=dashboard-build --chown=node:node /app/.next/static ./dashboard-server/.next/static
+COPY --from=dashboard-build --chown=node:node /app/public ./dashboard-server/public
 
-# Writable keys dir only (rootfs can be read-only at runtime)
+# Writable data dir (API keys + metrics DB); rootfs can stay read-only
 RUN mkdir -p /data && chown node:node /data
 
 USER node
 
-EXPOSE 6446
+EXPOSE 3000 6446
 
-# Liveness: process up + HTTP stack answering
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PROXY_PORT||6446)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.DASHBOARD_PORT||3000)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# exec form — no shell, no signal loss
-CMD ["node", "src/index.mjs"]
+CMD ["node", "scripts/start.mjs"]

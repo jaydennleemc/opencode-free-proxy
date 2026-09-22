@@ -93,10 +93,11 @@ Both `Authorization: Bearer KEY` and `x-api-key: KEY` work on all endpoints.
 
 ## Docker
 
-### All-in-one (proxy + metrics dashboard, single container)
+One container runs both the proxy (API on `6446`) and the metrics dashboard
+(web UI on `3000`):
 
 ```bash
-docker build -f Dockerfile.allinone -t opencode-proxy .
+docker build -t opencode-proxy .
 docker run -d --name opencode-proxy -p 3000:3000 -p 6446:6446 -v proxy-data:/data opencode-proxy
 ```
 
@@ -104,17 +105,13 @@ docker run -d --name opencode-proxy -p 3000:3000 -p 6446:6446 -v proxy-data:/dat
 - API: `http://localhost:6446/v1` — publish `6446` only if your API clients run outside the container
 - API keys and the metrics DB persist in the `proxy-data` volume; the dashboard picks up a key automatically
 
-### Proxy only (compose)
+Or with compose:
 
 ```bash
 docker compose up -d --build
 # API keys persist in the proxy-data volume:
 docker exec opencode-free-proxy cat /data/api-keys.json
 ```
-
-API keys persist in the `proxy-data` volume. Compose also includes an optional
-`dashboard` service (published on `127.0.0.1:3000`, set `PROXY_API_KEY` in the
-environment) if you prefer two containers.
 
 ## Use with tools
 
