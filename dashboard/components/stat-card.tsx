@@ -7,27 +7,37 @@ export default function StatCard({
   label: string;
   value: string;
   sub?: string;
-  accent?: "teal" | "violet" | "red" | "amber";
+  accent?: "cyan" | "violet" | "red" | "green";
 }) {
-  const accentClass =
-    accent === "teal"
-      ? "text-teal"
-      : accent === "violet"
-        ? "text-violet"
-        : accent === "red"
-          ? "text-red"
-          : accent === "amber"
-            ? "text-amber"
-            : "text-ink";
+  const accentColors = {
+    cyan: "text-cyan",
+    violet: "text-violet",
+    red: "text-red",
+    green: "text-green",
+  };
+  const accentDots = {
+    cyan: "bg-cyan",
+    violet: "bg-violet",
+    red: "bg-red",
+    green: "bg-green",
+  };
+
   return (
-    <div className="surface rounded-lg bg-panel px-4 py-3">
-      <div className="text-[11px] uppercase tracking-widest text-dim">
-        {label}
+    <div className="surface px-5 py-4">
+      <div className="flex items-center gap-2">
+        {accent && (
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${accentDots[accent]}`} />
+        )}
+        <span className="text-[11px] uppercase tracking-widest text-muted">
+          {label}
+        </span>
       </div>
-      <div className={`tnum mt-1 text-2xl font-semibold ${accentClass}`}>
+      <div className={`tnum mt-2 text-3xl font-bold tracking-tight ${accent ? accentColors[accent] : "text-text"}`}>
         {value}
       </div>
-      {sub && <div className="tnum mt-0.5 text-xs text-dim">{sub}</div>}
+      {sub && (
+        <div className="tnum mt-1 text-xs text-muted">{sub}</div>
+      )}
     </div>
   );
 }

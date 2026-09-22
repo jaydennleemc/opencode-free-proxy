@@ -20,21 +20,21 @@ export default function ModelChart({ rows }: { rows: ModelRow[] }) {
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-        <CartesianGrid stroke="#1e2632" strokeDasharray="3 3" vertical={false} />
+    <ResponsiveContainer width="100%" height={220}>
+      <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+        <CartesianGrid stroke="#1e1e22" strokeDasharray="3 3" vertical={false} />
         <XAxis
           dataKey="model"
-          tick={{ fill: "#6b7686", fontSize: 10, fontFamily: "monospace" }}
+          tick={{ fill: "#71717a", fontSize: 10, fontFamily: "monospace" }}
           tickLine={false}
-          axisLine={{ stroke: "#1e2632" }}
+          axisLine={{ stroke: "#1e1e22" }}
           interval={0}
           angle={-20}
           textAnchor="end"
           height={52}
         />
         <YAxis
-          tick={{ fill: "#6b7686", fontSize: 11, fontFamily: "monospace" }}
+          tick={{ fill: "#71717a", fontSize: 11, fontFamily: "monospace" }}
           tickFormatter={compact}
           tickLine={false}
           axisLine={false}
@@ -42,18 +42,20 @@ export default function ModelChart({ rows }: { rows: ModelRow[] }) {
         />
         <Tooltip
           contentStyle={{
-            background: "#12161d",
+            background: "#1c1c21",
             border: "none",
-            borderRadius: 8,
+            borderRadius: 10,
             boxShadow:
-              "0 0 0 1px oklch(1 0 0 / 0.1), 0 8px 24px -4px oklch(0 0 0 / 0.5)",
+              "0 0 0 1px rgba(255,255,255,0.06), 0 8px 32px rgba(0,0,0,0.5)",
             fontFamily: "monospace",
             fontSize: 12,
+            color: "#fafafa",
           }}
-          labelStyle={{ color: "#6b7686" }}
+          labelStyle={{ color: "#71717a" }}
+          cursor={{ fill: "rgba(255,255,255,0.02)" }}
           formatter={(value) => compact(Number(value ?? 0))}
         />
-        <Bar dataKey="input" stackId="t" fill="#2dd4bf" radius={[0, 0, 0, 0]} />
+        <Bar dataKey="input" stackId="t" fill="#06b6d4" radius={[0, 0, 0, 0]} />
         <Bar dataKey="output" stackId="t" fill="#a78bfa" radius={[3, 3, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
