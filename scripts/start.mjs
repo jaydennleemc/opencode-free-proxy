@@ -28,19 +28,41 @@ const children = [
   }),
 ];
 
+let forceExitScheduled = false;
+let exitedCount = 0;
+
 function shutdown(signal) {
   for (const child of children) child.kill(signal);
-  setTimeout(() => process.exit(0), 500).unref();
+  if (forceExitScheduled) return;
+  forceExitScheduled = true;
+  // Ref'd timer (not unref'd): even if some handle keeps the event loop
+  // alive, the launcher still force-exits here — a wedged child can never
+  // leave the container running with a dead proxy.
+  setTimeout(() => {
+    console.error(
+      `[launcher] ${children.length - exitedCount} child(ren) still alive after 500ms, exiting`,
+    );
+    process.exit(process.exitCode ?? 0);
+  }, 500);
 }
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
 for (const child of children) {
+  child.on("error", (err) => {
+    console.error(`[launcher] child error: ${err.message}, shutting down`);
+    process.exitCode = 1;
+    shutdown("SIGTERM");
+  });
   child.on("exit", (code, signal) => {
     console.error(`[launcher] child exited (code=${code} signal=${signal}), shutting down`);
     shutdown("SIGTERM");
     process.exitCode = code ?? 1;
+    exitedCount++;
+    if (exitedCount === children.length) {
+      process.exit(process.exitCode ?? 0);
+    }
   });
 }
 

@@ -86,7 +86,11 @@ export function pipeZenAsAnthropic(
     let terminalHandled = false;
 
     function failRateLimit(errMsg) {
-      if (terminalHandled || res.headersSent) return;
+      if (terminalHandled) return;
+      if (res.headersSent) {
+        abortStream(errMsg);
+        return;
+      }
       terminalHandled = true;
       done("rate_limited", errMsg);
       logLine("RATE LIMITED, exhausted retries", errMsg);
@@ -104,7 +108,11 @@ export function pipeZenAsAnthropic(
     }
 
     function failUpstream(status, errMsg, type = "upstream_error") {
-      if (terminalHandled || res.headersSent) return;
+      if (terminalHandled) return;
+      if (res.headersSent) {
+        abortStream(errMsg);
+        return;
+      }
       terminalHandled = true;
       done("error", errMsg);
       logLine("UPSTREAM ERROR", errMsg);
@@ -114,12 +122,62 @@ export function pipeZenAsAnthropic(
         .json({ type: "error", error: { type, message: errMsg } });
     }
 
+    /**
+     * Terminal failure after the client response was already committed
+     * (headers sent). A fresh attempt would throw ERR_HTTP_HEADERS_SENT
+     * trying to rewrite the status line, which used to crash the whole
+     * proxy process — so emit the Anthropic error event and end instead.
+     */
+    function abortStream(errMsg) {
+      if (terminalHandled) return;
+      terminalHandled = true;
+      done("error", errMsg);
+      logLine("ABORTED", errMsg);
+      logIO("OUTPUT (aborted)", { error: errMsg });
+      if (res.writableEnded || res.destroyed) return;
+      try {
+        res.write(
+          "event: error\ndata: " +
+            JSON.stringify({ type: "error", error: { type: "api_error", message: errMsg } }) +
+            "\n\n",
+        );
+        res.end();
+      } catch {
+        /* client already gone */
+      }
+    }
+
+    /** Terminal handling for upstream socket failures (error/close/timeout). */
+    function failSocketError(e) {
+      if (terminalHandled) return;
+      if (res.headersSent) {
+        abortStream("Upstream error: " + e.message);
+        return;
+      }
+      if (remaining > 0 && isTransientNetworkError(e)) {
+        if (trySchedule("transient", e.message)) return;
+      }
+      terminalHandled = true;
+      logLine("ERROR", e.message);
+      logIO("OUTPUT (error)", { error: e.message });
+      done("error", e.message);
+      res.status(502).json({
+        type: "error",
+        error: { type: "upstream_error", message: e.message },
+      });
+    }
+
     /** @returns {boolean} true if a retry was scheduled */
     function trySchedule(kind, errMsg, headers) {
       if (gone()) {
         logLine("CLIENT GONE, aborting retries");
         intentionalClose = true;
         return true;
+      }
+      if (res.headersSent) {
+        // Response already committed to the client: a new attempt would
+        // throw ERR_HTTP_HEADERS_SENT trying to rewrite the headers.
+        return false;
       }
       const plan = planRetry({ remaining, retries, kind, headers, errMsg });
       if (!plan) return false;
@@ -158,7 +216,10 @@ export function pipeZenAsAnthropic(
       }
 
       function sendHeaders() {
-        if (headersSent) return;
+        if (headersSent || res.headersSent) {
+          headersSent = true;
+          return;
+        }
         headersSent = true;
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -380,43 +441,41 @@ export function pipeZenAsAnthropic(
         done("ok");
         res.end();
       });
+
+      zenRes.on("close", () => {
+        // Upstream connection dropped before the body completed — 'end'
+        // will never fire, so the client would hang without this net.
+        if (zenRes.complete || skipEnd || terminalHandled || intentionalClose)
+          return;
+        const e = new Error("Upstream closed before response completed");
+        e.code = "ECONNRESET";
+        failSocketError(e);
+      });
     });
 
     req.on("error", (e) => {
       if (intentionalClose || terminalHandled) return;
-      if (remaining > 0 && isTransientNetworkError(e)) {
-        if (trySchedule("transient", e.message)) return;
-      }
-      logLine("ERROR", e.message);
-      logIO("OUTPUT (error)", { error: e.message });
-      done("error", e.message);
-      if (!res.headersSent) {
-        res
-          .status(502)
-          .json({
-            type: "error",
-            error: { type: "upstream_error", message: e.message },
-          });
-      }
+      failSocketError(e);
     });
 
     req.on("timeout", () => {
       if (intentionalClose || terminalHandled) return;
       intentionalClose = true;
       req.destroy();
+      if (res.headersSent) {
+        abortStream("Upstream timeout");
+        return;
+      }
       if (remaining > 0 && trySchedule("transient", "Upstream timeout")) return;
       intentionalClose = false;
+      terminalHandled = true;
       logLine("TIMEOUT");
       logIO("OUTPUT (timeout)", { error: "Upstream timeout" });
       done("error", "Upstream timeout");
-      if (!res.headersSent) {
-        res
-          .status(504)
-          .json({
-            type: "error",
-            error: { type: "timeout_error", message: "Upstream timeout" },
-          });
-      }
+      res.status(504).json({
+        type: "error",
+        error: { type: "timeout_error", message: "Upstream timeout" },
+      });
     });
 
     req.write(body);
