@@ -1,8 +1,11 @@
 [
-  "ling-3.0-flash-fin-free",
+  "beam-free",
+  "deepseek-v4.1-flash-free",
+  "glm-5.3-flash-free",
+  "jev-1.13-free",
+  "longcat-2.5-preview-free",
   "mimo-v2.6-flash-free",
-  "muse-spark-1.2-contributor-free",
-  "muse-spark-1.3-contributor-free",
-  "nemotron-3-ultra-free",
-  "nemotron-3.5-lightning-free"
+  "minimax-m3.1-flash-free",
+  "nemotron-3.5-lightning-free",
+  "nemotron-3.5-super-vl-free"
 ]
