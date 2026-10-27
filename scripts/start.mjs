@@ -19,7 +19,7 @@ const children = [
     stdio: "inherit",
     env: { ...process.env, PROXY_PORT },
   }),
-  spawn(process.execPath, ["dashboard-server/server.js"], {
+  spawn("node", ["dashboard-server/server.js"], {
     stdio: "inherit",
     env: {
       ...process.env,

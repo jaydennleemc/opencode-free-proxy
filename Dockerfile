@@ -37,19 +37,22 @@ WORKDIR /app
 COPY --from=proxy-deps --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package.json models.json ./
 COPY --chown=node:node src ./src
+COPY --chown=node:node fingerprint ./fingerprint
 COPY --chown=node:node scripts ./scripts
 COPY --from=dashboard-build --chown=node:node /app/.next/standalone ./dashboard-server
 COPY --from=dashboard-build --chown=node:node /app/.next/static ./dashboard-server/.next/static
 COPY --from=dashboard-build --chown=node:node /app/public ./dashboard-server/public
 
 # Writable data dir (API keys + metrics DB); rootfs can stay read-only
-RUN mkdir -p /data && chown node:node /data
+RUN mkdir -p /data && chown bun:bun /data
 
-USER node
+USER bun
 
 EXPOSE 3000 6446
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.DASHBOARD_PORT||3000)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["bun", "scripts/start.mjs"]
+# The proxy must run under bun (TLS gate); the dashboard Next server keeps node
+# (oven/bun ships a node fallback binary).
+CMD ["node", "scripts/start.mjs"]
