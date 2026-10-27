@@ -13,7 +13,9 @@ const { loadKeys } = await import("../src/auth.mjs");
 loadKeys();
 
 const children = [
-  spawn(process.execPath, ["src/index.mjs"], {
+  // The proxy must run under Bun (inference gate fingerprints Bun's TLS stack);
+  // the dashboard build is plain node.
+  spawn("bun", ["src/index.mjs"], {
     stdio: "inherit",
     env: { ...process.env, PROXY_PORT },
   }),

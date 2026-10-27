@@ -9,7 +9,7 @@ process.env.LOG_DETAIL = "0";
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import { EventEmitter } from "node:events";
-import https from "node:https";
+import { setRequest, defaultTransport } from "../src/zenttp.mjs";
 
 const { pipeZenResponse } = await import("../src/pipe-openai.mjs");
 
@@ -71,10 +71,9 @@ function fakeRes() {
 }
 
 function runPipe(res, requestImpl, opts = {}) {
-  const original = https.request;
-  https.request = requestImpl;
+  setRequest(requestImpl);
   const restore = () => {
-    https.request = original;
+    setRequest(defaultTransport);
   };
   try {
     pipeZenResponse(

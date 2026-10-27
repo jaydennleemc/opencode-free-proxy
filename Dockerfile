@@ -22,10 +22,11 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 
 # ── Run stage ────────────────────────────────────────────────
-FROM node:24-alpine AS run
+# Bun, not node: the inference free-tier gate fingerprints the client's TLS
+# stack; node https/http2 all get 429 FreeUsageLimitError, only Bun's fetch passes.
+FROM oven/bun:1.4.4-alpine AS run
 
 ENV NODE_ENV=production \
-    NODE_OPTIONS=--use-openssl-ca \
     PROXY_PORT=6446 \
     DASHBOARD_PORT=3000 \
     KEYS_FILE=/data/api-keys.json \
@@ -51,4 +52,4 @@ EXPOSE 3000 6446
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.DASHBOARD_PORT||3000)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "scripts/start.mjs"]
+CMD ["bun", "scripts/start.mjs"]

@@ -9,29 +9,24 @@ One server — works with any tool that speaks OpenAI, Anthropic, or Response AP
 ```bash
 git clone https://github.com/bigdata2211it-web/opencode-free-proxy.git
 cd opencode-free-proxy
-npm install
-npm start
+bun install
+npm start   # runs `bun src/index.mjs` — Bun is required, see below
 ```
+
+> **Why Bun?** The free-tier gate fingerprints the client's TLS stack. Node's
+> `https`/`http2` get `429 FreeUsageLimitError` even with byte-identical
+> bodies/headers; only Bun's `fetch` passes. Everything else (tests, metrics)
+> still works in Node.
 
 Done. Server is at `http://localhost:6446`. API keys are in `api-keys.json` (auto-generated on first run).
 
-`npm install` then `npm start`. The proxy talks to `opencode.ai/zen` directly with the official-client fingerprint the free tier requires.
+The proxy talks to `opencode.ai/inference` directly with the official-client fingerprint (v2.1.4: headers + the official agent system prompt) the free tier requires.
 
 ## What you get
 
-The server currently serves these free models (check `/v1/models` at runtime for the authoritative list):
+The proxy serves the free models from OpenCode's catalog (check `/v1/models` at runtime for the authoritative list), e.g. `glm-5.3-flash-free`, `kimi-k2.5-free`, `minimax-m3.1-flash-free`, `nemotron-3-ultra-free`, `beam-free`, `big-pickle`.
 
-| Model | Description |
-|-------|-------------|
-| `mimo-v2.5-free` | Xiaomi MiMo V2.5 |
-| `nemotron-3-ultra-free` | NVIDIA Nemotron 3 Ultra |
-| `nemotron-3.5-lightning-free` | NVIDIA Nemotron 3.5 Lightning |
-| `ling-3.0-flash-fin-free` | Ling 3.0 Flash Fin |
-| `big-pickle` | Big Pickle |
-| `muse-spark-1.2-contributor-free` | Muse Spark 1.2 |
-| `muse-spark-1.3-contributor-free` | Muse Spark 1.3 |
-
-All models support streaming, system messages, and tool calling. Cursor's own tool names are forwarded; the proxy injects the four OpenCode fingerprint tools (`bash`, `glob`, `grep`, `read`) that the free-tier gate requires.
+All models support streaming, system messages, and tool calling. Your own tool names are forwarded; the proxy injects the four OpenCode fingerprint tools (`bash`, `glob`, `grep`, `read`) if missing.
 
 ## API
 
@@ -93,12 +88,18 @@ Both `Authorization: Bearer KEY` and `x-api-key: KEY` work on all endpoints.
 
 ## Docker
 
+Pull from Docker Hub, or build yourself:
+
+```bash
+docker run -d --name opencode-proxy -p 3000:3000 -p 6446:6446 -v proxy-data:/data jaydennleemc/opencode-proxy:latest
+```
+
 One container runs both the proxy (API on `6446`) and the metrics dashboard
 (web UI on `3000`):
 
 ```bash
-docker build -t opencode-proxy .
-docker run -d --name opencode-proxy -p 3000:3000 -p 6446:6446 -v proxy-data:/data opencode-proxy
+docker build -t jaydennleemc/opencode-proxy .
+docker run -d --name opencode-proxy -p 3000:3000 -p 6446:6446 -v proxy-data:/data jaydennleemc/opencode-proxy
 ```
 
 - Dashboard: `http://localhost:3000` (the only port you need for the web UI)

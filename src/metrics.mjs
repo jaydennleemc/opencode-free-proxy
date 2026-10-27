@@ -1,10 +1,31 @@
-// Request metrics recorded to a local SQLite file via node:sqlite.
+// Request metrics recorded to a local SQLite file via node:sqlite (bun:sqlite
+// fallback — bun's test runner doesn't resolve the node: builtin).
 // METRICS=0 disables recording (all functions become no-ops).
 // METRICS_FILE sets the DB path (default ./metrics.db).
 // Recording is best-effort: failures are logged, never thrown.
 
-import { DatabaseSync } from "node:sqlite";
 import { logLine } from "./logger.mjs";
+
+let DatabaseSync;
+try {
+  ({ DatabaseSync } = await import("node:sqlite"));
+} catch {
+  // bun test can't resolve node: builtins; bun:sqlite has the same API surface
+  // for the subset we use (exec / prepare().run|get|all).
+  const { Database } = await import("bun:sqlite");
+  DatabaseSync = class {
+    constructor(path) { this.db = new Database(path); }
+    exec(sql) { this.db.exec(sql); }
+    prepare(sql) {
+      const st = this.db.prepare(sql);
+      return {
+        get: (...a) => st.get(...a),
+        all: (...a) => st.all(...a),
+        run: (...a) => st.run(...a),
+      };
+    }
+  };
+}
 
 export const METRICS_ENABLED = process.env.METRICS !== "0";
 export const METRICS_FILE = process.env.METRICS_FILE || "./metrics.db";

@@ -1,9 +1,21 @@
-import https from "https";
+import fs from "fs";
 import { ocId } from "./utils.mjs";
 import { OC_VERSION } from "./config/index.mjs";
+import { request } from "./zenttp.mjs";
 
 /** Names Zen's free-tier gate requires on the request. Extras are allowed. */
 export const FINGERPRINT_TOOLS = ["bash", "glob", "grep", "read"];
+
+/**
+ * The gate (2026-10) serves free models only to requests whose system prompt
+ * looks like the official OpenCode agent, so we ship it verbatim and wrap the
+ * client's own system prompt onto its tail. Content is the axis (a truncated
+ * prefix or same-size padding still gets 429), not size or tools.
+ */
+const OFFICIAL_SYSTEM = fs.readFileSync(
+  new URL("../fingerprint/official-system.txt", import.meta.url),
+  "utf8",
+);
 
 const DECOY_DESCRIPTION = "This tool is currently unavailable and must not be used.";
 
@@ -32,47 +44,73 @@ export function ensureFingerprintTools(tools) {
   return list;
 }
 
+function systemTextOf(msg) {
+  if (typeof msg?.content === "string") return msg.content;
+  if (Array.isArray(msg?.content)) {
+    return msg.content
+      .map((p) => (typeof p === "string" ? p : p?.text || ""))
+      .join("\n");
+  }
+  return "";
+}
+
+/**
+ * Official agent system first, the client's own system prompt appended.
+ * Verified against the live gate: multi-message systems and merged tail both
+ * pass; merging keeps providers that dislike duplicate system roles happy.
+ */
+export function wrapSystem(messages) {
+  const list = Array.isArray(messages) ? [...messages] : [];
+  const idx = list.findIndex((m) => m?.role === "system");
+  const clientSys = idx >= 0 ? systemTextOf(list[idx]) : "";
+  if (idx >= 0) list.splice(idx, 1);
+  const sys = clientSys ? `${OFFICIAL_SYSTEM}\n\n${clientSys}` : OFFICIAL_SYSTEM;
+  return [{ role: "system", content: sys }, ...list];
+}
+
 export function zenRequest(model, messages, _stream, tools, tool_choice, sessionId) {
-  // Zen 403s FreeTierError unless the request looks like the official client:
-  // stream:true + {bash, glob, grep, read} (caller tools are kept).
+  // Inference gate (2026-10): free tier only from inside OpenCode. Required
+  // fingerprint (captured from official client 2.1.4): bun fetch TLS + its UA +
+  // session headers + the official agent system prompt as the first message.
   const hadClientTools = Array.isArray(tools) && tools.length > 0;
   const reqBody = {
     model,
-    messages,
+    messages: wrapSystem(messages),
     stream: true,
     tools: ensureFingerprintTools(tools),
   };
   if (tool_choice) reqBody.tool_choice = tool_choice;
   else if (!hadClientTools) reqBody.tool_choice = "none";
   const body = JSON.stringify(reqBody);
-  const requestId = ocId("msg");
 
   return {
     body,
     options: {
       hostname: "opencode.ai",
       port: 443,
-      path: "/zen/v1/chat/completions",
+      path: "/inference/openai/v1/chat/completions",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Accept": "text/event-stream",
-        "Content-Length": Buffer.byteLength(body),
+        "Accept": "*/*",
         "Authorization": "Bearer public",
-        "User-Agent": `opencode/${OC_VERSION} ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.13`,
+        "User-Agent": `opencode/latest/${OC_VERSION}/cli`,
         "x-opencode-client": "cli",
-        "x-opencode-project": "global",
-        "x-opencode-request": requestId,
+        "x-opencode-project": "18e62f0f6d18dec370f659f7c62e5b994dabda71",
         "x-opencode-session": sessionId,
+        "x-opencode-session-id": sessionId,
+        "x-session-affinity": sessionId,
+        "x-session-id": sessionId,
       },
       timeout: 120000,
     },
   };
 }
 
+/** Aggregate one (always-stream) Zen reply into a sync JSON body. */
 export function zenRequestFull(zenOpts, body) {
   return new Promise((resolve, reject) => {
-    const req = https.request(zenOpts, (zenRes) => {
+    const req = request(zenOpts, (zenRes) => {
       const chunks = [];
       zenRes.on("data", (c) => chunks.push(c));
       zenRes.on("end", () => {

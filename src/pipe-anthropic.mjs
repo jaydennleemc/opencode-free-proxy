@@ -1,4 +1,4 @@
-import https from "https";
+import * as zenHttp from "./zenttp.mjs";
 import { MAX_RETRIES } from "./config/index.mjs";
 import { logLine, logIO } from "./logger.mjs";
 import { ocId } from "./utils.mjs";
@@ -199,7 +199,7 @@ export function pipeZenAsAnthropic(
       return true;
     }
 
-    const req = https.request(currentOpts, (zenRes) => {
+    const req = zenHttp.request(currentOpts, (zenRes) => {
       let headersSent = false;
       let buffer = "";
       let outputTokens = 0;

@@ -1,4 +1,4 @@
-import https from "https";
+import * as zenHttp from "./zenttp.mjs";
 import { MAX_RETRIES } from "./config/index.mjs";
 import { logLine, logIO, LOG_DETAIL } from "./logger.mjs";
 import {
@@ -296,7 +296,7 @@ export function pipeZenAsResponse(
       }
     }
 
-    const req = https.request(currentOpts, (zenRes) => {
+    const req = zenHttp.request(currentOpts, (zenRes) => {
       const status = zenRes.statusCode || 0;
       let firstChunkHandled = false;
 

@@ -1,7 +1,7 @@
 import fs from "fs";
 
 export const PORT = process.env.PROXY_PORT || 6446;
-export const OC_VERSION = "1.18.31";
+export const OC_VERSION = "2.1.4";
 
 const pkg = JSON.parse(
   fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"),

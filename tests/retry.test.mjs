@@ -139,30 +139,36 @@ describe("session rotation helpers", () => {
     assert.strictEqual(getSession("retry-test-user"), b);
   });
 
-  it("withFreshSession rewrites session and request headers", () => {
+  it("withFreshSession rewrites all four session headers", () => {
     const opts = {
       headers: {
         "x-opencode-session": "ses_old",
-        "x-opencode-request": "msg_old",
+        "x-opencode-session-id": "ses_old",
+        "x-session-affinity": "ses_old",
+        "x-session-id": "ses_old",
       },
     };
     const next = withFreshSession(opts, "retry-test-user-2");
-    assert.notStrictEqual(next.headers["x-opencode-session"], "ses_old");
-    assert.notStrictEqual(next.headers["x-opencode-request"], "msg_old");
-    assert.match(next.headers["x-opencode-session"], /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
-    assert.match(next.headers["x-opencode-request"], /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    for (const k of ["x-opencode-session", "x-opencode-session-id", "x-session-affinity", "x-session-id"]) {
+      assert.notStrictEqual(next.headers[k], "ses_old");
+      assert.strictEqual(next.headers[k], next.headers["x-opencode-session"]);
+      assert.match(next.headers[k], /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    }
   });
 
-  it("withFreshRequestId keeps session", () => {
+  it("withFreshRequestId rotates the session id (no request-id header exists)", () => {
     const opts = {
       headers: {
         "x-opencode-session": "ses_keep",
-        "x-opencode-request": "msg_old",
+        "x-opencode-session-id": "ses_keep",
+        "x-session-affinity": "ses_keep",
+        "x-session-id": "ses_keep",
       },
     };
     const next = withFreshRequestId(opts);
-    assert.strictEqual(next.headers["x-opencode-session"], "ses_keep");
-    assert.notStrictEqual(next.headers["x-opencode-request"], "msg_old");
-    assert.match(next.headers["x-opencode-request"], /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    for (const k of ["x-opencode-session", "x-opencode-session-id", "x-session-affinity", "x-session-id"]) {
+      assert.notStrictEqual(next.headers[k], "ses_keep");
+      assert.strictEqual(next.headers[k], next.headers["x-opencode-session"]);
+    }
   });
 });

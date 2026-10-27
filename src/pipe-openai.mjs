@@ -1,4 +1,4 @@
-import https from "https";
+import * as zenHttp from "./zenttp.mjs";
 import { MAX_RETRIES } from "./config/index.mjs";
 import { logLine, logIO, LOG_DETAIL } from "./logger.mjs";
 import { ocId } from "./utils.mjs";
@@ -325,7 +325,7 @@ export function pipeZenResponse(zenOpts, body, stream, res, ctx = {}) {
       return true;
     }
 
-    const req = https.request(currentOpts, (zenRes) => {
+    const req = zenHttp.request(currentOpts, (zenRes) => {
       let firstChunk = null;
       let headersSent = false;
       let skipEnd = false;

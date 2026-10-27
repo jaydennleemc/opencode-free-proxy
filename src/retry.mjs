@@ -46,30 +46,26 @@ export function isClientGone(clientReq, res) {
   return false;
 }
 
-/** New session id + fresh request id (for rate-limit retries). */
+/** New session id across all four session headers (for rate-limit retries).
+ *  The official client sends no request-id header; only the session id moves. */
 export function withFreshSession(zenOpts, user) {
   const sessionId = user
     ? rotateSession(user)
-    : zenOpts.headers?.["x-opencode-session"];
-  return {
-    ...zenOpts,
-    headers: {
-      ...zenOpts.headers,
-      "x-opencode-session": sessionId,
-      "x-opencode-request": ocId("msg"),
-    },
-  };
+    : zenOpts.headers?.["x-opencode-session"] || ocId("ses");
+  return withSessionHeaders(zenOpts, sessionId);
 }
 
-/** Keep session, mint a new request id (for transient retries). */
+/** Keep session, mint a new one anyway (for transient retries). */
 export function withFreshRequestId(zenOpts) {
-  return {
-    ...zenOpts,
-    headers: {
-      ...zenOpts.headers,
-      "x-opencode-request": ocId("msg"),
-    },
-  };
+  return withSessionHeaders(zenOpts, ocId("ses"));
+}
+
+function withSessionHeaders(zenOpts, sessionId) {
+  const headers = { ...zenOpts.headers };
+  for (const k of ["x-opencode-session", "x-opencode-session-id", "x-session-affinity", "x-session-id"]) {
+    headers[k] = sessionId;
+  }
+  return { ...zenOpts, headers };
 }
 
 export function isTransientNetworkError(err) {

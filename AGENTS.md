@@ -13,20 +13,21 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 
 ## Key facts
 
+- **Must run under Bun** — the 2026-10 free-tier gate fingerprints the client's TLS stack; node `https`/`http2` both get `429 FreeUsageLimitError` with identical bodies/headers, only Bun's `fetch` passes (`bun src/index.mjs`). Tests still run under node (`npm test`) — the transport has a seam (`setRequest`) so tests can fake it.
 - **ESM only** — `"type": "module"` in package.json; use `import` not `require`.
-- **No build step** — raw Node.js, no TypeScript, no bundler.
 - **Tests** — `npm test` runs Node built-in test runner in `tests/`.
-- **Architecture (v0.2+)** — direct `opencode.ai/zen/v1/chat/completions`. The 2026-09-16 `FreeTierError` is HTTP fingerprinting, not encrypted inference. Required: `User-Agent: opencode/<≥1.17>`, canonical `x-opencode-session`/`x-opencode-request`, tools named `{bash, glob, grep, read}`, `stream: true`.
-- **Cursor** — Custom Models send `read_file` / `codebase_search` / etc. and no `bash`/`read`. Forward those tools and inject the missing fingerprint names. Do not drop client tools. Do not spawn `opencode serve` and override `system` (that 403s as a custom agent).
+- **Architecture (v0.3)** — direct `opencode.ai/inference/openai/v1/chat/completions` (the old `/zen/v1` path is dead — it now 401s every anonymous request). The gate fingerprints the client, verified live against the official 2.1.4 client: bun fetch TLS + `User-Agent: opencode/latest/2.1.4/cli` + `Authorization: Bearer public` + `x-opencode-client: cli` + the 40-hex `x-opencode-project` + four equal session headers (`x-opencode-session`/`-id`, `x-session-affinity`, `x-session-id`, `ses_` + 12 hex + 14 base62) + **the official agent system prompt as the first message** (`fingerprint/official-system.txt`, content is the axis: truncated prefixes or same-size padding still 429). The client's own system prompt is appended onto its tail. Tools don't matter for the gate — `{bash, glob, grep, read}` decoys are still added for legacy shape.
+- **models.json** = every free model from models.dev's `opencode` entry; other clients (`*` non-free) are paid.
+- **Cursor** — custom models forward their tools; the four fingerprint names are injected as decoys if missing.
 - **Three API formats** served on the same server:
   - `POST /v1/chat/completions` (OpenAI)
   - `POST /v1/responses` (OpenAI Response API)
   - `POST /v1/messages` (Anthropic)
   - Auth works with either `Authorization: Bearer KEY` or `x-api-key: KEY` header.
-- **Metrics** — `GET /v1/metrics?range=1h|24h|7d|30d` (same auth) returns request/token aggregates recorded to a SQLite file via `node:sqlite` in `src/metrics.mjs`. Token counts use Zen's `usage` chunk when present, else chars/4 estimates (`estimated` flag). Recorded once per client request at terminal paths only. Includes a `recent` array of the last 20 requests.
-- **Key management** (admin only — the key named `admin`): `GET /v1/keys`, `POST /v1/keys { "name": "…" }` (generates an `oc-…` key), `DELETE /v1/keys/:name`. Protected keys: `admin` cannot be deleted.
-- **Response API** — translates `input`/`instructions` → chat messages, and pipes Zen SSE back as `response.created` → `response.content_part.delta` → `response.completed` events. Supports tools, tool_choice, temperature, top_p, max_output_tokens. `previous_response_id` not supported (Zen has no state).
-- **Streaming is real** — Zen SSE is piped through. Sync clients get SSE folded into one JSON body (`aggregateSseToCompletion`) because Zen 403s `stream: false`.
+- **Metrics** — `GET /v1/metrics?range=1h|24h|7d|30d` (same auth) via `node:sqlite` (bun test can't resolve it, so `src/metrics.mjs` falls back to `bun:sqlite`).
+- **Key management** (admin only — the key named `admin`): `GET /v1/keys`, `POST /v1/keys { "name": "…" }`, `DELETE /v1/keys/:name`.
+- **Response API** — `previous_response_id` not supported (upstream has no state).
+- **Streaming is real** — upstream SSE piped through; sync clients get SSE folded into one JSON body.
 - **Dependencies** — `express` only.
 
 ## Env vars
@@ -48,7 +49,8 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 | Path | Purpose |
 |------|---------|
 | `src/index.mjs` | Entry: load keys, start server |
-| `src/client.mjs` | Zen request builder + fingerprint tools |
+| `src/client.mjs` | Inference request builder + fingerprint (UA/session headers/agent-system wrap) |
+| `src/zenttp.mjs` | Fetch-based transport (bun fetch; keeps `https.request` callback shape), test seam |
 | `src/session.mjs` | Per-user `ses_` id, rotated on 429 |
 | `src/pipe-openai.mjs` | Zen SSE → OpenAI SSE / sync JSON |
 | `src/pipe-response.mjs` | Zen SSE → Response API SSE / sync JSON |
@@ -72,4 +74,4 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 - No TypeScript, no lint config — just raw JS with Express.
 - `console.log` for logging (no structured logger).
 - The main complexity is the Zen pipe in `pipe-openai.mjs` / `pipe-anthropic.mjs` / `pipe-response.mjs` and the free-tier fingerprint in `src/client.mjs` — preserve behavior when touching.
-- If Zen starts 403ing again, bisect the four fingerprint axes before assuming the gate moved into a closed layer.
+- If the free gate rejects again (429 `FreeUsageLimitError`), re-capture a live official-client request (local listener + `baseURL` override) and bisect: transport/TLS first (bun fetch vs node), then UA/headers, then the system-prompt content. `403` from an anonymous call means the gate moved behind login — do not assume it is still fingerprintable.
