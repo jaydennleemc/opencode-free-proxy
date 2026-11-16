@@ -17,7 +17,7 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 - **ESM only** — `"type": "module"` in package.json; use `import` not `require`.
 - **Tests** — `npm test` runs Node built-in test runner in `tests/`.
 - **Architecture (v0.3)** — direct `opencode.ai/inference/openai/v1/chat/completions` (the old `/zen/v1` path is dead — it now 401s every anonymous request). The gate fingerprints the client, verified live against the official 2.1.4 client: bun fetch TLS + `User-Agent: opencode/latest/2.1.4/cli` + `Authorization: Bearer public` + `x-opencode-client: cli` + the 40-hex `x-opencode-project` + four equal session headers (`x-opencode-session`/`-id`, `x-session-affinity`, `x-session-id`, `ses_` + 12 hex + 14 base62) + **the official agent system prompt as the first message** (`fingerprint/official-system.txt`, content is the axis: truncated prefixes or same-size padding still 429). The client's own system prompt is appended onto its tail. Tools don't matter for the gate — `{bash, glob, grep, read}` decoys are still added for legacy shape.
-- **models.json** = every free model from models.dev's `opencode` entry; other clients (`*` non-free) are paid.
+- **models.json** = free models verified live against the gate (each entry must return a completion; drop dead ones). models.dev's `opencode` free list is stale in both directions — it still lists models upstream rejects, so probe before adding; other clients (`*` non-free) are paid. `beam-free` is geo-blocked in some regions.
 - **Cursor** — custom models forward their tools; the four fingerprint names are injected as decoys if missing.
 - **Three API formats** served on the same server:
   - `POST /v1/chat/completions` (OpenAI)
