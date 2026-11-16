@@ -39,7 +39,7 @@ API keys are auto-generated into `api-keys.json` on first run — no `.env` setu
 | `MAX_RETRIES` | `12` | Rate-limit / transient retries |
 | `RETRY_BASE_MS` / `RETRY_MAX_MS` | `1000` / `30000` | Backoff base / cap (±20% jitter) |
 | `LOG_DETAIL` | `1` | `0` disables full I/O dumps |
-| `LOG_MAX_CHARS` | `0` | Truncate logged payloads (0 = unlimited) |
+| `LOG_MAX_CHARS` | `4000` | Truncate logged payloads (0 = unlimited) |
 | `METRICS` | `1` | `0` disables request metrics recording |
 | `METRICS_FILE` | `./metrics.db` | SQLite metrics DB path (gitignored) |
 | `NO_COLOR` / `FORCE_COLOR` | — | ANSI color control |

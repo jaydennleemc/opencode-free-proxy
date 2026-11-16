@@ -3,7 +3,12 @@
 // NO_COLOR=1 disables ANSI color; FORCE_COLOR=1 forces it (default: auto on TTY).
 
 export const LOG_DETAIL = process.env.LOG_DETAIL !== "0";
-export const LOG_MAX_CHARS = Number(process.env.LOG_MAX_CHARS || 0) || 0;
+// Default 4000: full request bodies (e.g. a harness client's ~14k-token
+// system prompt) flood the log otherwise. Set 0 explicitly for unlimited.
+export const LOG_MAX_CHARS =
+  process.env.LOG_MAX_CHARS === undefined
+    ? 4000
+    : Number(process.env.LOG_MAX_CHARS) || 0;
 
 // ── ANSI color helpers ──────────────────────────────────────────────────────
 

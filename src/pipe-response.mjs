@@ -213,16 +213,6 @@ export function pipeZenAsResponse(
       return true;
     }
 
-    function handleRetryable(kind, errMsg) {
-      if (trySchedule(kind, errMsg, zenRes.headers)) {
-        skipEnd = true;
-        zenRes.destroy();
-        req.destroy();
-        return true;
-      }
-      return false;
-    }
-
     function sendSSE(event, data) {
       const line = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
       if (streamLogLines !== null) streamLogLines += line;
@@ -299,6 +289,17 @@ export function pipeZenAsResponse(
     const req = zenHttp.request(currentOpts, (zenRes) => {
       const status = zenRes.statusCode || 0;
       let firstChunkHandled = false;
+
+      // Inside the callback so `zenRes` is in scope (sibling pipes do the same).
+      function handleRetryable(kind, errMsg) {
+        if (trySchedule(kind, errMsg, zenRes.headers)) {
+          skipEnd = true;
+          zenRes.destroy();
+          req.destroy();
+          return true;
+        }
+        return false;
+      }
 
       zenRes.on("data", (chunk) => {
         if (skipEnd || terminalHandled) return;

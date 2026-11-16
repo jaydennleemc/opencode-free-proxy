@@ -247,3 +247,50 @@ describe("stream retry after headers sent", () => {
     }
   });
 });
+
+describe("response pipe retry", () => {
+  it("response api: 429 before headers retries and succeeds (zenRes in scope)", async () => {
+    const { pipeZenAsResponse } = await import("../src/pipe-response.mjs");
+    const res = fakeRes();
+    let calls = 0;
+    setRequest((opts, cb) => {
+      calls++;
+      const req = fakeReq();
+      const zr = fakeZenRes(calls === 1 ? 429 : 200);
+      queueMicrotask(() => {
+        cb(zr);
+        if (calls === 1) {
+          // Pre-fix this called handleRetryable outside the callback scope
+          // where `zenRes` is bound → uncaught ReferenceError → process crash.
+          zr.emit("data", Buffer.from('{"error":{"message":"Rate limit exceeded"}}'));
+        } else {
+          zr.emit("data", Buffer.from(SSE_CHUNK));
+          zr.complete = true;
+          queueMicrotask(() => zr.emit("end"));
+        }
+      });
+      return req;
+    });
+    pipeZenAsResponse(
+      { hostname: "example.invalid", headers: {} },
+      JSON.stringify({ model: "m", messages: [] }),
+      "m",
+      true,
+      res,
+      10,
+      { retries: 2, user: "u", clientReq: { aborted: false } },
+    );
+    try {
+      await waitFor(() => res.writableEnded);
+      assert.ok(calls >= 2, `attempts=${calls}`);
+      assert.ok(res.writeHeadCount === 1, "writeHead called once");
+      assert.ok(
+        res.chunks.join("").includes("response.completed"),
+        "finishes with response.completed",
+      );
+      assert.ok(!res.chunks.join("").includes("upstream_error"), "no error surfaced");
+    } finally {
+      setRequest(defaultTransport);
+    }
+  });
+});

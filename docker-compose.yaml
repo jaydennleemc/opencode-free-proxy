@@ -23,7 +23,7 @@ services:
       USER_DEFAULT_API_KEY: "${USER_DEFAULT_API_KEY:-}"
       # Production default: less I/O leakage in logs
       LOG_DETAIL: "${LOG_DETAIL:-0}"
-      LOG_MAX_CHARS: "${LOG_MAX_CHARS:-0}"
+      LOG_MAX_CHARS: "${LOG_MAX_CHARS:-4000}"
       FORCE_COLOR: "${FORCE_COLOR:-}"
     volumes:
       - proxy-data:/data
